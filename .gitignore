@@ -1,0 +1,15 @@
+build/
+build-verify/
+build-redesign/
+backups/
+dist/
+out/
+*.user
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.vscode/
+.idea/
+*.log
+run_*.txt
+test*.txt

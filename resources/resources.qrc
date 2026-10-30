@@ -1,0 +1,8 @@
+﻿<RCC>
+  <qresource prefix="/database">
+    <file>schema.sql</file>
+  </qresource>
+  <qresource prefix="/brand">
+    <file alias="labbooker.png">images/labbooker-logo.png</file>
+  </qresource>
+</RCC>
