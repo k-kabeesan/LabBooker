@@ -1,0 +1,16 @@
+********* Start testing of CoreTests *********
+Config: Using QtTest library 6.11.2, Qt 6.11.2 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.2.0), windows 11
+PASS   : CoreTests::initTestCase()
+PASS   : CoreTests::authenticationAndPermissions()
+PASS   : CoreTests::accountRegistrationRequiresAdministratorApproval()
+PASS   : CoreTests::overlapBoundariesAndIsolation()
+PASS   : CoreTests::availabilityAndBookingHours()
+PASS   : CoreTests::bookingOwnershipReviewCancellationAndHistory()
+PASS   : CoreTests::equipmentReservationsAndRollback()
+PASS   : CoreTests::consistentRulesAcrossRoles()
+PASS   : CoreTests::activationAndDeactivation()
+PASS   : CoreTests::reportServiceGeneratesCountsAndSummary()
+PASS   : CoreTests::migratesVersionOneWithoutLosingRows()
+PASS   : CoreTests::cleanupTestCase()
+Totals: 12 passed, 0 failed, 0 skipped, 0 blacklisted, 36005ms
+********* Finished testing of CoreTests *********
