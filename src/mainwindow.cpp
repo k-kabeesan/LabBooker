@@ -35,6 +35,11 @@
 #include <QGraphicsDropShadowEffect>
 #include <QScrollArea>
 #include <QInputDialog>
+#include <QPlainTextEdit>
+#include <QTextEdit>
+#include <QTextStream>
+#include <QDateTime>
+#include <QSet>
 #include <algorithm>
 #include <memory>
 
@@ -208,6 +213,29 @@ void filterTableRows(QTableWidget* table, const QString& query) {
   }
 }
 
+void filterBookingRows(QTableWidget* table, const QString& query, const QString& status,
+                       const QDate& from, const QDate& to, const QString& lab = {}, const QString& department = {}) {
+  const QString needle = query.trimmed();
+  for (int row = 0; row < table->rowCount(); ++row) {
+    bool textMatch = needle.isEmpty();
+    for (int col = 0; !textMatch && col < table->columnCount(); ++col) {
+      const auto* item = table->item(row, col);
+      textMatch = item && item->text().contains(needle, Qt::CaseInsensitive);
+    }
+    const auto* dateItem = table->item(row, 3);
+    const QDate date = dateItem ? dateItem->data(Qt::UserRole).toDate() : QDate();
+    const bool dateMatch = date.isValid() && date >= from && date <= to;
+    const auto* labItem = table->item(row, 2);
+    const bool labMatch = lab.isEmpty() || (labItem && labItem->text().contains(lab, Qt::CaseInsensitive));
+    const auto* requesterItem = table->item(row, 1);
+    const bool departmentMatch = department.isEmpty() || (requesterItem &&
+      requesterItem->data(Qt::UserRole + 1).toString().contains(department, Qt::CaseInsensitive));
+    const auto* statusItem = table->item(row, 7);
+    const bool statusMatch = status.isEmpty() || (statusItem && statusItem->text() == status);
+    table->setRowHidden(row, !(textMatch && dateMatch && labMatch && departmentMatch && statusMatch));
+  }
+}
+
 QWidget* calendarDateControl(QDateEdit* dateEdit) {
   auto* control = new QWidget;
   control->setFocusProxy(dateEdit);
@@ -302,10 +330,16 @@ void styleFormDialog(QDialog& dialog, QFormLayout& form) {
 // ============================================================================
 
 LoginWindow::LoginWindow(DatabaseManager& db, QWidget* parent)
-  : QWidget(parent), m_db(db) {
+  : QWidget(parent), m_db(db), m_loginBackground(":/brand/login-background.png") {
   setWindowTitle("LabBooker - University Laboratory Booking System");
   setMinimumSize(850, 750);
   resize(1100, 850);
+  m_backgroundLabel = new QLabel(this);
+  m_backgroundLabel->setObjectName("loginBackground");
+  m_backgroundLabel->setAlignment(Qt::AlignCenter);
+  m_backgroundLabel->setGeometry(rect());
+  m_backgroundLabel->setPixmap(m_loginBackground.scaled(size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+  m_backgroundLabel->lower();
 
   auto* outer = new QVBoxLayout(this);
   outer->setContentsMargins(24, 24, 24, 24);
@@ -345,7 +379,7 @@ LoginWindow::LoginWindow(DatabaseManager& db, QWidget* parent)
 
   // 3. Field 1: University Email / Student ID
   auto* idHeaderLayout = new QHBoxLayout;
-  auto* idLabel = new QLabel("University Email / Student ID");
+  auto* idLabel = new QLabel("Student / Staff ID (E-ID)");
   idLabel->setObjectName("fieldCaption");
   auto* idHelper = new QLabel("Use your campus ID");
   idHelper->setObjectName("fieldHelper");
@@ -463,7 +497,7 @@ LoginWindow::LoginWindow(DatabaseManager& db, QWidget* parent)
   outer->addWidget(card);
 
   setStyleSheet(
-    "LoginWindow { background: #ffffff; font-family: 'Segoe UI', sans-serif; }"
+    "LoginWindow { font-family: 'Segoe UI', sans-serif; }"
     "QFrame#loginCard { background: #ffffff; border: 1.5px solid #edf2f7; border-radius: 20px; }"
     "QLabel#loginHeading { font-size: 25px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px; }"
     "QLabel#fieldCaption { font-size: 13.5px; font-weight: 600; color: #1e293b; }"
@@ -510,14 +544,19 @@ LoginWindow::LoginWindow(DatabaseManager& db, QWidget* parent)
       "For account security, passwords cannot be retrieved directly.\nPlease contact your laboratory administrator to reset your credentials.");
   });
   connect(contactAdmin, &QPushButton::clicked, this, [this] {
+    const QString contact = QSettings().value("university/adminContact").toString().trimmed();
     QMessageBox::information(this, "Laboratory Administrator Contact",
-      "University Laboratory Management Office\n\n"
-      "Email: lab-admin@university.edu\n"
-      "Office: Science & Technology Complex, Room 204\n"
-      "Hours: Monday – Friday, 8:30 AM – 5:30 PM\n"
-      "Phone: +94 (11) 234-5678");
+      contact.isEmpty() ? "Ask your university department for the laboratory administrator's contact details."
+                        : contact);
   });
   connect(registerAccount, &QPushButton::clicked, this, &LoginWindow::requestAccount);
+}
+void LoginWindow::resizeEvent(QResizeEvent* event) {
+  QWidget::resizeEvent(event);
+  if (!m_backgroundLabel || m_loginBackground.isNull()) return;
+  m_backgroundLabel->setGeometry(rect());
+  m_backgroundLabel->setPixmap(m_loginBackground.scaled(size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+  m_backgroundLabel->lower();
 }
 
 void LoginWindow::reset() {
@@ -760,6 +799,7 @@ MainWindow::MainWindow(DatabaseManager& db, std::shared_ptr<User> u, QWidget* p)
 
   addSection("ACCOUNT");
   addNav("Profile", "profile", profilePage());
+  addNav("Updates", "profile", updatesPage());
   addNav("Settings", "settings", settingsPage());
 
   side->addStretch();
@@ -892,7 +932,8 @@ void MainWindow::prefillBookingForm(qint64 labId, const QDate& date, const QTime
   if (m_bookingDateEdit) m_bookingDateEdit->setDate(date);
   if (m_bookingStartEdit) m_bookingStartEdit->setTime(start);
   if (m_bookingEndEdit) m_bookingEndEdit->setTime(end);
-  const auto slotOpt = findFixedBookingSlot(start, end);
+  std::optional<FixedBookingSlot> slotOpt;
+  for (const auto& slot : m_db.bookingSlots()) if (slot.start == start && slot.end == end) slotOpt = slot;
   if (slotOpt) {
     m_selectedSlotId = slotOpt->id;
   }
@@ -903,6 +944,15 @@ void MainWindow::prefillBookingForm(qint64 labId, const QDate& date, const QTime
 
 void MainWindow::refreshLaboratoryCombos() {
   const auto labs = m_db.laboratories(false);
+  if (m_availabilitySlotCombo) {
+    const int selected = m_availabilitySlotCombo->currentData().toInt();
+    m_availabilitySlotCombo->blockSignals(true);
+    m_availabilitySlotCombo->clear();
+    for (const auto& slot : m_db.bookingSlots()) m_availabilitySlotCombo->addItem(slot.fullTitle, slot.id);
+    const int index = m_availabilitySlotCombo->findData(selected);
+    m_availabilitySlotCombo->setCurrentIndex(index >= 0 ? index : 0);
+    m_availabilitySlotCombo->blockSignals(false);
+  }
 
   if (m_availabilityLabCombo) {
     const qint64 prevLabId = m_availabilityLabCombo->currentData().toLongLong();
@@ -963,6 +1013,10 @@ void MainWindow::updateNavBadges() {
   const bool admin = m_user->role() == UserRole::Administrator;
   const int pendingApprovals = admin ? m_db.allBookings(true).size() : 0;
   const int pendingUsers = admin ? m_db.count("users", "approved = 0") : 0;
+  const QString lastSeen = QSettings().value(QString("updates/seen/%1").arg(m_user->id())).toString();
+  int newUpdates = 0;
+  for (const auto& notification : m_db.notificationsForUser(m_user->id()))
+    if (lastSeen.isEmpty() || notification.timestamp > lastSeen) ++newUpdates;
   const auto* sidebar = findChild<QFrame*>("sidebar");
   const bool collapsed = sidebar && sidebar->width() < 100;
 
@@ -975,6 +1029,8 @@ void MainWindow::updateNavBadges() {
       if (pendingUsers > 0) label = QString("Users (%1)").arg(pendingUsers);
     } else if (page == "My Bookings") {
       label = QString("My Bookings (%1)").arg(myBookingCount);
+    } else if (page == "Updates" && newUpdates > 0) {
+      label = QString("Updates (%1)").arg(newUpdates);
     }
     b->setProperty("fullLabel", label);
     b->setToolTip(label);
@@ -1016,6 +1072,7 @@ void MainWindow::applyTheme(const QString& theme) {
       "QPushButton[btnStyle='success']:hover { background: #059669; }"
       "QPushButton[btnStyle='danger'] { background: #ef4444; color: white; }"
       "QPushButton[btnStyle='danger']:hover { background: #dc2626; }"
+      "QPushButton[btnStyle='success']:disabled, QPushButton[btnStyle='danger']:disabled, QPushButton[btnStyle='secondary']:disabled { background: #1e293b; color: #64748b; border: 1px solid #334155; }"
       "QLineEdit, QDateEdit, QTimeEdit, QComboBox, QSpinBox {"
       "  background: #151d2d; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; min-height: 22px; selection-background-color: #6366f1;"
       "}"
@@ -1076,6 +1133,7 @@ void MainWindow::applyTheme(const QString& theme) {
       "QPushButton[btnStyle='success']:hover { background: #059669; }"
       "QPushButton[btnStyle='danger'] { background: #ef4444; color: white; }"
       "QPushButton[btnStyle='danger']:hover { background: #dc2626; }"
+      "QPushButton[btnStyle='success']:disabled, QPushButton[btnStyle='danger']:disabled, QPushButton[btnStyle='secondary']:disabled { background: #e2e8f0; color: #94a3b8; border: 1px solid #cbd5e1; }"
       "QLineEdit, QDateEdit, QTimeEdit, QComboBox, QSpinBox {"
       "  background: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; min-height: 22px; selection-background-color: #6366f1;"
       "}"
@@ -1134,6 +1192,38 @@ void MainWindow::refreshCurrentPage() {
   if (!m_pages) return;
   QWidget* p = m_pages->currentWidget();
   updateNavBadges();
+
+  if (auto* updates = p->findChild<QTableWidget*>("updatesTable")) {
+    updates->setRowCount(0);
+    QSet<qint64> notifiedBookings;
+    for (const auto& notification : m_db.notificationsForUser(m_user->id())) {
+      const int row = updates->rowCount();
+      updates->insertRow(row);
+      auto* action = new QTableWidgetItem(notification.action);
+      action->setData(Qt::UserRole, notification.bookingId);
+      updates->setItem(row, 0, action);
+      updates->setItem(row, 1, new QTableWidgetItem(QDateTime::fromString(notification.timestamp, Qt::ISODateWithMs).toLocalTime().toString("ddd d MMM yyyy, h:mm AP")));
+      updates->setItem(row, 2, new QTableWidgetItem(notification.bookingId > 0 ? QString::number(notification.bookingId) : "Account"));
+      updates->setItem(row, 3, new QTableWidgetItem(notification.description));
+      if (notification.bookingId > 0) notifiedBookings.insert(notification.bookingId);
+    }
+    const QVector<Booking> records = m_user->role() == UserRole::Administrator
+      ? m_db.allBookings(false) : m_db.bookingsForUser(m_user->id());
+    for (const auto& booking : records) {
+      if (booking.status == BookingStatus::Pending || notifiedBookings.contains(booking.id)) continue;
+      const int row = updates->rowCount();
+      updates->insertRow(row);
+      auto* action = new QTableWidgetItem("Booking " + toString(booking.status).toLower());
+      action->setData(Qt::UserRole, booking.id);
+      updates->setItem(row, 0, action);
+      updates->setItem(row, 1, new QTableWidgetItem("Earlier"));
+      updates->setItem(row, 2, new QTableWidgetItem(booking.reference));
+      updates->setItem(row, 3, new QTableWidgetItem(booking.decisionNote.isEmpty() ? "View booking details" : booking.decisionNote));
+    }
+    QSettings().setValue(QString("updates/seen/%1").arg(m_user->id()), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+    updateNavBadges();
+    return;
+  }
 
   if (p == m_pages->widget(0)) {
     refreshDashboard();
@@ -1228,8 +1318,8 @@ void MainWindow::refreshCurrentPage() {
   }
   // Admin Bookings Refresh
   if (auto* t = p->findChild<QTableWidget*>("adminBookingsTable")) {
-    QHash<qint64, QString> users, labs;
-    for (const auto& u : m_db.users()) users.insert(u.id, u.name);
+    QHash<qint64, QString> users, departments, labs;
+    for (const auto& u : m_db.users()) { users.insert(u.id, u.name); departments.insert(u.id, u.department); }
     for (const auto& l : m_db.laboratories(true)) labs.insert(l.id, l.name);
     t->setRowCount(0);
     for (const auto& b : m_db.allBookings(false)) {
@@ -1238,9 +1328,13 @@ void MainWindow::refreshCurrentPage() {
       auto* idItem = new QTableWidgetItem(b.reference);
       idItem->setData(Qt::UserRole, b.id);
       t->setItem(r, 0, idItem);
-      t->setItem(r, 1, new QTableWidgetItem(users.value(b.userId, "Unknown")));
+      auto* requester = new QTableWidgetItem(users.value(b.userId, "Unknown"));
+      requester->setData(Qt::UserRole + 1, departments.value(b.userId));
+      t->setItem(r, 1, requester);
       t->setItem(r, 2, new QTableWidgetItem(labs.value(b.labId, "Unknown")));
-      t->setItem(r, 3, new QTableWidgetItem(b.date.toString("ddd, d MMM yyyy")));
+      auto* dateItem = new QTableWidgetItem(b.date.toString("ddd, d MMM yyyy"));
+      dateItem->setData(Qt::UserRole, b.date);
+      t->setItem(r, 3, dateItem);
       t->setItem(r, 4, new QTableWidgetItem(b.start.toString("HH:mm") + " - " + b.end.toString("HH:mm")));
       QStringList eqList;
       for (const auto& eq : m_db.equipmentForBooking(b.id)) {
@@ -1248,16 +1342,26 @@ void MainWindow::refreshCurrentPage() {
       }
       t->setItem(r, 5, new QTableWidgetItem(eqList.isEmpty() ? "None" : eqList.join(", ")));
       t->setItem(r, 6, new QTableWidgetItem(b.purpose));
+      auto* statusItem = new QTableWidgetItem(toString(b.status));
+      t->setItem(r, 7, statusItem);
       t->setCellWidget(r, 7, createStatusBadgeWidget(toString(b.status), toString(b.status)));
     }
-    if (auto* search = p->findChild<QLineEdit*>("adminBookingsSearch"))
-      filterTableRows(t, search->text());
+    auto* search = p->findChild<QLineEdit*>("adminBookingsSearch");
+    auto* status = p->findChild<QComboBox*>("adminBookingsStatus");
+    auto* lab = p->findChild<QLineEdit*>("adminBookingsLab");
+    auto* department = p->findChild<QLineEdit*>("adminBookingsDepartment");
+    auto* from = p->findChild<QDateEdit*>("adminBookingsFrom");
+    auto* to = p->findChild<QDateEdit*>("adminBookingsTo");
+    if (from && to) filterBookingRows(t, search ? search->text() : QString(),
+      status && status->currentIndex() > 0 ? status->currentText() : QString(),
+      from->date(), to->date(), lab ? lab->text().trimmed() : QString(),
+      department ? department->text().trimmed() : QString());
     return;
   }
   // Approvals Table Refresh
   if (auto* t = p->findChild<QTableWidget*>("approvalsTable")) {
-    QHash<qint64, QString> users, labs;
-    for (const auto& u : m_db.users()) users.insert(u.id, QString("%1 (%2)").arg(u.name, u.eid));
+    QHash<qint64, QString> users, departments, labs;
+    for (const auto& u : m_db.users()) { users.insert(u.id, QString("%1 (%2)").arg(u.name, u.eid)); departments.insert(u.id, u.department); }
     for (const auto& l : m_db.laboratories(true)) labs.insert(l.id, QString("%1 [%2]").arg(l.name, l.number));
     t->setRowCount(0);
     for (const auto& b : m_db.allBookings(true)) {
@@ -1266,9 +1370,13 @@ void MainWindow::refreshCurrentPage() {
       auto* ref = new QTableWidgetItem(b.reference);
       ref->setData(Qt::UserRole, b.id);
       t->setItem(r, 0, ref);
-      t->setItem(r, 1, new QTableWidgetItem(users.value(b.userId, "Unknown User")));
+      auto* requester = new QTableWidgetItem(users.value(b.userId, "Unknown User"));
+      requester->setData(Qt::UserRole + 1, departments.value(b.userId));
+      t->setItem(r, 1, requester);
       t->setItem(r, 2, new QTableWidgetItem(labs.value(b.labId, "Unknown Laboratory")));
-      t->setItem(r, 3, new QTableWidgetItem(b.date.toString("ddd, d MMM yyyy")));
+      auto* dateItem = new QTableWidgetItem(b.date.toString("ddd, d MMM yyyy"));
+      dateItem->setData(Qt::UserRole, b.date);
+      t->setItem(r, 3, dateItem);
       t->setItem(r, 4, new QTableWidgetItem(b.start.toString("HH:mm") + " - " + b.end.toString("HH:mm")));
 
       QStringList eqList;
@@ -1297,16 +1405,65 @@ void MainWindow::refreshCurrentPage() {
       });
       connect(reject, &QPushButton::clicked, this, [this, bookingId] {
         bool ok = false;
-        QString reason = QInputDialog::getText(this, "Reject Reservation", "Enter reason for rejection (optional):", QLineEdit::Normal, QString(), &ok);
+        QString reason = QInputDialog::getText(this, "Reject Reservation", "Reason for rejection (required):", QLineEdit::Normal, QString(), &ok).trimmed();
         if (!ok) return;
+        if (reason.isEmpty()) {
+          QMessageBox::warning(this, "Reason Required", "Enter a reason so the requester knows what to change.");
+          return;
+        }
         auto result = BookingService(m_db).review(*m_user, bookingId, BookingStatus::Rejected, reason);
         if (!result.ok) QMessageBox::warning(this, "Rejection Failed", result.error);
         refreshCurrentPage();
         refreshDashboard();
       });
     }
+    auto* search = p->findChild<QLineEdit*>("approvalsSearch");
+    auto* lab = p->findChild<QLineEdit*>("approvalsLab");
+    auto* department = p->findChild<QLineEdit*>("approvalsDepartment");
+    auto* from = p->findChild<QDateEdit*>("approvalsFrom");
+    auto* to = p->findChild<QDateEdit*>("approvalsTo");
+    if (from && to) filterBookingRows(t, search ? search->text() : QString(), {},
+      from->date(), to->date(), lab ? lab->text().trimmed() : QString(),
+      department ? department->text().trimmed() : QString());
     return;
   }
+}
+
+void MainWindow::showBookingDetails(qint64 bookingId) {
+  const auto booking = m_db.bookingById(bookingId);
+  if (!booking) return;
+  QString labName = "Unknown laboratory";
+  for (const auto& lab : m_db.laboratories(true)) if (lab.id == booking->labId) labName = lab.name + " [" + lab.number + "]";
+  QString requester = "";
+  if (const auto user = m_db.userById(booking->userId)) requester = user->name + " (" + user->eid + ")";
+  QStringList equipment;
+  for (const auto& item : m_db.equipmentForBooking(bookingId))
+    equipment << QString("%1 × %2").arg(item.equipmentName.toHtmlEscaped()).arg(item.quantity);
+  QString html = QString("<h2>%1</h2><p><b>Requester:</b> %2<br><b>Laboratory:</b> %3<br><b>Date:</b> %4<br><b>Time:</b> %5–%6<br><b>Status:</b> %7<br><b>Purpose:</b> %8<br><b>Equipment:</b> %9</p>")
+    .arg(booking->reference.toHtmlEscaped(), requester.toHtmlEscaped(), labName.toHtmlEscaped(),
+         booking->date.toString("ddd, d MMM yyyy"), booking->start.toString("HH:mm"), booking->end.toString("HH:mm"),
+         toString(booking->status).toHtmlEscaped(), booking->purpose.toHtmlEscaped(),
+         equipment.isEmpty() ? "None" : equipment.join(", "));
+  if (!booking->decisionNote.isEmpty()) html += "<p><b>Decision note:</b> " + booking->decisionNote.toHtmlEscaped() + "</p>";
+  const auto history = m_db.bookingApprovals(bookingId);
+  html += "<h3>Decision history</h3>";
+  if (history.isEmpty()) html += "<p>No review decisions yet.</p>";
+  for (const auto& action : history)
+    html += QString("<p><b>%1</b> — %2 by %3<br>%4</p>")
+      .arg(action.action.toHtmlEscaped(), action.actionTime.toHtmlEscaped(),
+           action.adminName.toHtmlEscaped(), action.comment.toHtmlEscaped());
+  QDialog dialog(this);
+  dialog.setWindowTitle("Booking " + booking->reference);
+  dialog.resize(620, 540);
+  auto* layout = new QVBoxLayout(&dialog);
+  auto* view = new QTextEdit;
+  view->setReadOnly(true);
+  view->setHtml(html);
+  layout->addWidget(view);
+  auto* close = createButton("Close", "primary");
+  layout->addWidget(close, 0, Qt::AlignRight);
+  connect(close, &QPushButton::clicked, &dialog, &QDialog::accept);
+  dialog.exec();
 }
 
 // ============================================================================
@@ -1490,7 +1647,7 @@ QWidget* MainWindow::availability() {
 
   auto* title = new QLabel("Laboratory Availability Checker");
   title->setStyleSheet("font-size: 20px; font-weight: 700;");
-  auto* sub = new QLabel("Operating hours: Monday to Friday, 8:30 AM to 5:30 PM (Lunch break: 12:30 PM – 1:30 PM). Select a laboratory, weekday, and fixed 2-hour slot.");
+  auto* sub = new QLabel("Select a laboratory and date to compare the four configured two-hour sessions. Weekends and closure dates are unavailable.");
   sub->setStyleSheet("color: #64748b; font-size: 13px;");
   root->addWidget(title);
   root->addWidget(sub);
@@ -1505,8 +1662,9 @@ QWidget* MainWindow::availability() {
   formHeading->setStyleSheet("font-size: 17px; font-weight: 700;");
   cl->addWidget(formHeading);
 
-  auto* fields = new QHBoxLayout;
-  fields->setSpacing(12);
+  auto* fields = new QGridLayout;
+  fields->setHorizontalSpacing(12);
+  fields->setVerticalSpacing(12);
 
   m_availabilityLabCombo = new QComboBox;
 
@@ -1516,11 +1674,12 @@ QWidget* MainWindow::availability() {
   dateEdit->setDisplayFormat("ddd, MMM d, yyyy");
 
   m_availabilitySlotCombo = new QComboBox;
-  for (const auto& s : fixedBookingSlots()) {
+  for (const auto& s : m_db.bookingSlots()) {
     m_availabilitySlotCombo->addItem(s.fullTitle, s.id);
   }
 
-  auto addField = [fields](const QString& title, QWidget* control, const QString& hint) {
+  int fieldIndex = 0;
+  auto addField = [fields, &fieldIndex](const QString& title, QWidget* control, const QString& hint) {
     auto* panel = new QFrame;
     panel->setObjectName("availabilityField");
     auto* column = new QVBoxLayout(panel);
@@ -1536,7 +1695,9 @@ QWidget* MainWindow::availability() {
     column->addWidget(label);
     column->addWidget(control);
     column->addWidget(helper);
-    fields->addWidget(panel, 1);
+    fields->addWidget(panel, fieldIndex == 2 ? 1 : 0, fieldIndex == 2 ? 0 : fieldIndex,
+                      1, fieldIndex == 2 ? 2 : 1);
+    ++fieldIndex;
   };
   addField("Laboratory", m_availabilityLabCombo, "Choose the facility you want to use");
   addField("Date", calendarDateControl(dateEdit), "Monday to Friday only · use the calendar button");
@@ -1556,6 +1717,14 @@ QWidget* MainWindow::availability() {
   auto* statusBanner = new QLabel("Select laboratory, date, and time slot, then click Check Selected Slot.");
   statusBanner->setStyleSheet("background: #f1f5f9; color: #475569; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px;");
   cl->addWidget(statusBanner);
+  auto invalidateCheck = [statusBanner, bookBtn] {
+    statusBanner->setText("Selection changed. Check the selected slot to continue.");
+    statusBanner->setStyleSheet("background: #f1f5f9; color: #475569; padding: 12px 16px; border-radius: 8px; font-weight: 600; font-size: 13px;");
+    bookBtn->setVisible(false);
+  };
+  connect(m_availabilityLabCombo, &QComboBox::currentIndexChanged, this, invalidateCheck);
+  connect(dateEdit, &QDateEdit::dateChanged, this, invalidateCheck);
+  connect(m_availabilitySlotCombo, &QComboBox::currentIndexChanged, this, invalidateCheck);
 
   // Existing schedule on that date
   auto* schedTitle = new QLabel("Scheduled Bookings on Selected Date");
@@ -1571,6 +1740,53 @@ QWidget* MainWindow::availability() {
   schedTable->setMinimumHeight(160);
   cl->addWidget(schedTable);
 
+  auto* weekTitle = new QLabel("Week at a glance — double-click an available cell to book");
+  weekTitle->setStyleSheet("font-size: 15px; font-weight: 700;");
+  cl->addWidget(weekTitle);
+  auto* weekTable = new QTableWidget(4, 5);
+  weekTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+  weekTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  weekTable->setSelectionMode(QAbstractItemView::SingleSelection);
+  weekTable->setMinimumHeight(230);
+  cl->addWidget(weekTable);
+  cl->removeWidget(weekTitle);
+  cl->removeWidget(weekTable);
+  const int scheduleIndex = cl->indexOf(schedTitle);
+  cl->insertWidget(scheduleIndex, weekTitle);
+  cl->insertWidget(scheduleIndex + 1, weekTable);
+  auto updateWeek = [this, dateEdit, weekTable] {
+    const QDate monday = dateEdit->date().addDays(1 - dateEdit->date().dayOfWeek());
+    QStringList headers;
+    for (int col = 0; col < 5; ++col) headers << monday.addDays(col).toString("ddd d MMM");
+    weekTable->setHorizontalHeaderLabels(headers);
+    const qint64 labId = m_availabilityLabCombo ? m_availabilityLabCombo->currentData().toLongLong() : 0;
+    const auto bookingSlots = m_db.bookingSlots();
+    QStringList slotLabels;
+    for (const auto& slot : bookingSlots) slotLabels << slot.label;
+    weekTable->setVerticalHeaderLabels(slotLabels);
+    for (int row = 0; row < 4; ++row) for (int col = 0; col < 5; ++col) {
+      const QDate day = monday.addDays(col);
+      const bool open = labId > 0 && AvailabilityService(m_db).validateRequest(labId, day, bookingSlots[row].start, bookingSlots[row].end).ok;
+      auto* item = new QTableWidgetItem(open ? "Available" : "Unavailable");
+      item->setTextAlignment(Qt::AlignCenter);
+      item->setData(Qt::UserRole, day);
+      item->setData(Qt::UserRole + 1, bookingSlots[row].id);
+      item->setForeground(QColor(open ? "#065f46" : "#991b1b"));
+      item->setBackground(QColor(open ? "#d1fae5" : "#fee2e2"));
+      weekTable->setItem(row, col, item);
+    }
+  };
+  connect(m_availabilityLabCombo, &QComboBox::currentIndexChanged, this, updateWeek);
+  connect(dateEdit, &QDateEdit::dateChanged, this, updateWeek);
+  connect(weekTable, &QTableWidget::cellDoubleClicked, this, [this, weekTable](int row, int col) {
+    auto* item = weekTable->item(row, col);
+    if (!item || item->text() != "Available") return;
+    const auto slot = m_db.bookingSlots()[row];
+    prefillBookingForm(m_availabilityLabCombo->currentData().toLongLong(), item->data(Qt::UserRole).toDate(), slot.start, slot.end);
+    navigateToPage("New Booking");
+  });
+  updateWeek();
+
   auto updateSchedule = [this, dateEdit, schedTable] {
     schedTable->setRowCount(0);
     if (!m_availabilityLabCombo || m_availabilityLabCombo->currentIndex() < 0) return;
@@ -1583,9 +1799,9 @@ QWidget* MainWindow::availability() {
       return;
     }
     const QDate dt = dateEdit->date();
-    if (isWeekend(dt)) {
+    if (m_db.isClosedDate(dt)) {
       schedTable->insertRow(0);
-      auto* it = new QTableWidgetItem("Weekend: University laboratories are closed on Saturdays and Sundays. Operating days are Monday to Friday.");
+      auto* it = new QTableWidgetItem("This date is closed. Choose another weekday.");
       schedTable->setItem(0, 0, it);
       schedTable->setSpan(0, 0, 1, 4);
       return;
@@ -1602,7 +1818,7 @@ QWidget* MainWindow::availability() {
     }
     if (schedTable->rowCount() == 0) {
       schedTable->insertRow(0);
-      auto* it = new QTableWidgetItem("No reservations booked for this day yet. All 4 fixed slots (8:30–12:30, 1:30–5:30) are open.");
+      auto* it = new QTableWidgetItem("No reservations booked for this day yet. Check a slot above before booking.");
       schedTable->setItem(0, 0, it);
       schedTable->setSpan(0, 0, 1, 4);
     }
@@ -1623,7 +1839,7 @@ QWidget* MainWindow::availability() {
       return;
     }
     const int slotId = m_availabilitySlotCombo ? m_availabilitySlotCombo->currentData().toInt() : 1;
-    const auto& allSlots = fixedBookingSlots();
+    const auto allSlots = m_db.bookingSlots();
     if (slotId < 1 || slotId > allSlots.size()) return;
     const auto& s = allSlots[slotId - 1];
 
@@ -1643,15 +1859,19 @@ QWidget* MainWindow::availability() {
   connect(bookBtn, &QPushButton::clicked, this, [this, dateEdit] {
     if (!m_availabilityLabCombo || !m_availabilitySlotCombo) return;
     const int slotId = m_availabilitySlotCombo->currentData().toInt();
-    const auto& allSlots = fixedBookingSlots();
+    const auto allSlots = m_db.bookingSlots();
     if (slotId < 1 || slotId > allSlots.size()) return;
     const auto& s = allSlots[slotId - 1];
     prefillBookingForm(m_availabilityLabCombo->currentData().toLongLong(), dateEdit->date(), s.start, s.end);
     navigateToPage("New Booking");
   });
 
-  root->addWidget(card);
-  root->addStretch();
+  auto* pageScroll = new QScrollArea;
+  pageScroll->setWidgetResizable(true);
+  pageScroll->setFrameShape(QFrame::NoFrame);
+  pageScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  pageScroll->setWidget(card);
+  root->addWidget(pageScroll, 1);
   return page;
 }
 
@@ -1693,6 +1913,9 @@ QWidget* MainWindow::bookings() {
 
   auto* purposeEdit = new QLineEdit;
   purposeEdit->setPlaceholderText("Describe the academic or research purpose");
+  auto* purposeError = new QLabel;
+  purposeError->setStyleSheet("color: #b91c1c; font-weight: 600;");
+  purposeError->setVisible(false);
 
   grid->addWidget(new QLabel("Laboratory"), 0, 0);
   grid->addWidget(m_bookingLabCombo, 1, 0);
@@ -1701,6 +1924,7 @@ QWidget* MainWindow::bookings() {
   grid->addWidget(new QLabel("Booking Purpose"), 2, 0, 1, 2);
   grid->addWidget(purposeEdit, 3, 0, 1, 2);
   fl->addLayout(grid);
+  fl->addWidget(purposeError);
 
   // Fixed Time Slots Selector Section
   auto* slotHeaderLayout = new QHBoxLayout;
@@ -1708,7 +1932,7 @@ QWidget* MainWindow::bookings() {
   slotTitle->setStyleSheet("font-size: 13px; font-weight: 700; color: #475569; margin-top: 4px;");
   slotHeaderLayout->addWidget(slotTitle);
   slotHeaderLayout->addStretch();
-  auto* lunchBadge = new QLabel("Lunch Break: 12:30 PM – 1:30 PM (Closed)");
+  auto* lunchBadge = new QLabel("Break between morning and afternoon sessions");
   lunchBadge->setStyleSheet("font-size: 11px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 4px 10px; border-radius: 6px;");
   slotHeaderLayout->addWidget(lunchBadge);
   fl->addLayout(slotHeaderLayout);
@@ -1721,7 +1945,7 @@ QWidget* MainWindow::bookings() {
   slotsGrid->setSpacing(12);
   m_bookingSlotButtons.clear();
 
-  const auto& allSlots = fixedBookingSlots();
+  const auto allSlots = m_db.bookingSlots();
   auto editingId = std::make_shared<qint64>(0);
 
   for (int i = 0; i < allSlots.size(); ++i) {
@@ -1735,7 +1959,8 @@ QWidget* MainWindow::bookings() {
     m_bookingSlotButtons.append(btn);
     slotsGrid->addWidget(btn, 0, i);
 
-    connect(btn, &QPushButton::clicked, this, [this, slot] {
+    connect(btn, &QPushButton::clicked, this, [this, i] {
+      const auto slot = m_db.bookingSlots().value(i);
       m_selectedSlotId = slot.id;
       if (m_bookingStartEdit) m_bookingStartEdit->setTime(slot.start);
       if (m_bookingEndEdit) m_bookingEndEdit->setTime(slot.end);
@@ -1749,10 +1974,10 @@ QWidget* MainWindow::bookings() {
     if (!m_bookingLabCombo || !m_bookingDateEdit || m_bookingSlotButtons.isEmpty()) return;
     const qint64 labId = m_bookingLabCombo->currentData().toLongLong();
     const QDate date = m_bookingDateEdit->date();
-    const bool weekend = isWeekend(date);
+    const bool weekend = m_db.isClosedDate(date);
 
     if (weekend) {
-      m_bookingSlotNotice->setText("Weekend Selected: University laboratories operate Monday to Friday only. Weekend bookings are not allowed.");
+      m_bookingSlotNotice->setText("This date is closed. Choose another weekday.");
       m_bookingSlotNotice->setStyleSheet("background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; padding: 10px 14px; border-radius: 8px; font-weight: 600; font-size: 13px;");
       m_bookingSlotNotice->setVisible(true);
     } else if (labId <= 0) {
@@ -1763,7 +1988,7 @@ QWidget* MainWindow::bookings() {
       m_bookingSlotNotice->setVisible(false);
     }
 
-    const auto& allSlots = fixedBookingSlots();
+    const auto allSlots = m_db.bookingSlots();
     int availableCount = 0;
     bool currentSelectedIsAvail = false;
 
@@ -1776,7 +2001,7 @@ QWidget* MainWindow::bookings() {
       QString badge = "Unavailable";
       if (weekend) {
         avail = false;
-        badge = "Weekend Closed";
+        badge = "Closed";
       } else if (labId <= 0) {
         avail = false;
         badge = "No Laboratory";
@@ -1912,8 +2137,12 @@ QWidget* MainWindow::bookings() {
   btnRow->addStretch();
   fl->addLayout(btnRow);
 
-  root->addWidget(formCard);
-  root->addStretch();
+  auto* formScroll = new QScrollArea;
+  formScroll->setWidgetResizable(true);
+  formScroll->setFrameShape(QFrame::NoFrame);
+  formScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  formScroll->setWidget(formCard);
+  root->addWidget(formScroll, 1);
 
   m_myBookingsPage = new QWidget;
   auto* historyLayout = new QVBoxLayout(m_myBookingsPage);
@@ -1943,26 +2172,42 @@ QWidget* MainWindow::bookings() {
   table->setSelectionMode(QAbstractItemView::SingleSelection);
   table->setEditTriggers(QAbstractItemView::NoEditTriggers);
   historyLayout->addWidget(table, 1);
+  editBtn->setEnabled(false);
+  cancelBtn->setEnabled(false);
+  connect(table, &QTableWidget::itemSelectionChanged, this, [this, table, editBtn, cancelBtn] {
+    const auto* item = table->currentRow() >= 0 ? table->item(table->currentRow(), 0) : nullptr;
+    const auto booking = item ? m_db.bookingById(item->data(Qt::UserRole).toLongLong()) : std::nullopt;
+    editBtn->setEnabled(booking && booking->status == BookingStatus::Pending);
+    cancelBtn->setEnabled(booking && (booking->status == BookingStatus::Pending || booking->status == BookingStatus::Approved));
+  });
+  connect(table, &QTableWidget::cellDoubleClicked, this, [this, table](int row, int) {
+    if (auto* item = table->item(row, 0)) showBookingDetails(item->data(Qt::UserRole).toLongLong());
+  });
 
   connect(refreshBtn, &QPushButton::clicked, this, [this] { refreshCurrentPage(); });
 
-  connect(submitBtn, &QPushButton::clicked, this, [this, purposeEdit, eqRows, editingId, submitBtn, formTitle, updateBookingSlotsUI] {
+  connect(submitBtn, &QPushButton::clicked, this, [this, purposeEdit, purposeError, eqRows, editingId, submitBtn, formTitle, updateBookingSlotsUI] {
+    purposeError->setVisible(false);
     if (!m_bookingLabCombo || m_bookingLabCombo->currentIndex() < 0 || m_bookingLabCombo->currentData().toLongLong() <= 0) {
       QMessageBox::warning(this, "Booking Error", "Please select a valid active laboratory.");
       return;
     }
     const QDate date = m_bookingDateEdit->date();
-    if (isWeekend(date)) {
-      QMessageBox::warning(this, "Booking Error", "Weekend bookings are not allowed. Operating days are Monday to Friday.");
+    if (m_db.isClosedDate(date)) {
+      QMessageBox::warning(this, "Booking Error", "This date is closed. Choose another weekday.");
       return;
     }
-    const auto slotOpt = findFixedBookingSlot(m_bookingStartEdit->time(), m_bookingEndEdit->time());
+    std::optional<FixedBookingSlot> slotOpt;
+    for (const auto& slot : m_db.bookingSlots())
+      if (slot.start == m_bookingStartEdit->time() && slot.end == m_bookingEndEdit->time()) slotOpt = slot;
     if (!slotOpt) {
       QMessageBox::warning(this, "Booking Error", "Please select one of the four fixed time slots (exactly 2 hours).");
       return;
     }
     if (purposeEdit->text().trimmed().isEmpty()) {
-      QMessageBox::warning(this, "Booking Error", "Please enter a purpose for the booking.");
+      purposeError->setText("Enter the academic or research purpose.");
+      purposeError->setVisible(true);
+      purposeEdit->setFocus();
       return;
     }
 
@@ -1979,6 +2224,16 @@ QWidget* MainWindow::bookings() {
       }
     }
 
+    const auto lab = m_bookingLabCombo->currentText();
+    QStringList equipmentSummary;
+    for (const auto& row : *eqRows)
+      if (row.check->isChecked()) equipmentSummary << QString("%1 × %2").arg(row.check->text()).arg(row.spin->value());
+    const QString summary = QString("Laboratory: %1\nDate: %2\nTime: %3–%4\nEquipment: %5\nPurpose: %6")
+      .arg(lab, date.toString("ddd, d MMM yyyy"), slotOpt->start.toString("HH:mm"),
+           slotOpt->end.toString("HH:mm"), equipmentSummary.isEmpty() ? "None" : equipmentSummary.join(", "), r.purpose);
+    if (QMessageBox::question(this, *editingId ? "Review Booking Changes" : "Review Booking Request",
+                              summary + "\n\nContinue?", QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) return;
+
     QString ref;
     const auto res = *editingId
       ? BookingService(m_db).update(*m_user, *editingId, r)
@@ -1993,6 +2248,7 @@ QWidget* MainWindow::bookings() {
     submitBtn->setText("Submit Reservation");
     formTitle->setText("Reserve a Laboratory");
     purposeEdit->clear();
+    if (m_refreshEquipmentFn) m_refreshEquipmentFn();
     refreshDashboard();
     updateBookingSlotsUI();
     navigateToPage("My Bookings");
@@ -2003,7 +2259,7 @@ QWidget* MainWindow::bookings() {
     }
   });
 
-  connect(editBtn, &QPushButton::clicked, this, [this, table, purposeEdit, editingId, submitBtn, formTitle, updateBookingSlotsUI] {
+  connect(editBtn, &QPushButton::clicked, this, [this, table, purposeEdit, eqRows, editingId, submitBtn, formTitle, updateBookingSlotsUI] {
     if (table->currentRow() < 0) return;
     const qint64 id = table->item(table->currentRow(), 0)->data(Qt::UserRole).toLongLong();
     const auto b = m_db.bookingById(id);
@@ -2017,7 +2273,8 @@ QWidget* MainWindow::bookings() {
     m_bookingDateEdit->setDate(b->date);
     m_bookingStartEdit->setTime(b->start);
     m_bookingEndEdit->setTime(b->end);
-    const auto slotOpt = findFixedBookingSlot(b->start, b->end);
+    std::optional<FixedBookingSlot> slotOpt;
+    for (const auto& slot : m_db.bookingSlots()) if (slot.start == b->start && slot.end == b->end) slotOpt = slot;
     if (slotOpt) {
       m_selectedSlotId = slotOpt->id;
     }
@@ -2026,6 +2283,12 @@ QWidget* MainWindow::bookings() {
     submitBtn->setText("Save Changes");
     formTitle->setText(QString("Edit Reservation: %1").arg(b->reference));
     navigateToPage("New Booking");
+    const auto bookedEquipment = m_db.equipmentForBooking(b->id);
+    for (const auto& booked : bookedEquipment)
+      for (const auto& row : *eqRows) if (row.id == booked.equipmentId) {
+        row.check->setChecked(true);
+        row.spin->setValue(booked.quantity);
+      }
   });
 
   connect(cancelBtn, &QPushButton::clicked, this, [this, table, updateBookingSlotsUI] {
@@ -2042,13 +2305,16 @@ QWidget* MainWindow::bookings() {
     updateBookingSlotsUI();
   });
 
-  connect(clearBtn, &QPushButton::clicked, this, [this, editingId, submitBtn, formTitle, purposeEdit, updateBookingSlotsUI] {
+  connect(clearBtn, &QPushButton::clicked, this, [this, editingId, submitBtn, formTitle, purposeEdit, purposeError, updateBookingSlotsUI] {
     *editingId = 0;
     submitBtn->setText("Submit Reservation");
     formTitle->setText("Reserve a Laboratory");
     purposeEdit->clear();
+    purposeError->setVisible(false);
+    if (m_bookingLabCombo && m_bookingLabCombo->count()) m_bookingLabCombo->setCurrentIndex(0);
     m_bookingDateEdit->setDate(nextOperatingWeekday());
     m_selectedSlotId = 1;
+    if (m_refreshEquipmentFn) m_refreshEquipmentFn();
     updateBookingSlotsUI();
   });
 
@@ -2069,6 +2335,35 @@ QWidget* MainWindow::approvals() {
   l->addWidget(title);
   l->addWidget(sub);
 
+  auto* searchRow = new QHBoxLayout;
+  auto* search = new QLineEdit;
+  search->setObjectName("approvalsSearch");
+  search->setPlaceholderText("Search reference, requester, laboratory or purpose");
+  auto* exportBtn = createButton("Export CSV", "secondary");
+  searchRow->addWidget(search, 1);
+  searchRow->addWidget(exportBtn);
+  l->addLayout(searchRow);
+  auto* filters = new QHBoxLayout;
+  auto* labFilter = new QLineEdit;
+  labFilter->setObjectName("approvalsLab");
+  labFilter->setPlaceholderText("Filter laboratory");
+  auto* departmentFilter = new QLineEdit;
+  departmentFilter->setObjectName("approvalsDepartment");
+  departmentFilter->setPlaceholderText("Filter department");
+  auto* fromFilter = new QDateEdit(QDate(2000, 1, 1));
+  fromFilter->setObjectName("approvalsFrom");
+  fromFilter->setCalendarPopup(true);
+  auto* toFilter = new QDateEdit(QDate(2100, 12, 31));
+  toFilter->setObjectName("approvalsTo");
+  toFilter->setCalendarPopup(true);
+  filters->addWidget(labFilter, 1);
+  filters->addWidget(departmentFilter, 1);
+  filters->addWidget(new QLabel("From"));
+  filters->addWidget(fromFilter);
+  filters->addWidget(new QLabel("To"));
+  filters->addWidget(toFilter);
+  l->addLayout(filters);
+
   auto* t = new QTableWidget(0, 8);
   t->setObjectName("approvalsTable");
   t->setHorizontalHeaderLabels({"Reference", "Requester", "Laboratory", "Date", "Time Window", "Equipment", "Purpose", "Decisions"});
@@ -2077,6 +2372,38 @@ QWidget* MainWindow::approvals() {
   t->setSelectionBehavior(QAbstractItemView::SelectRows);
   t->setEditTriggers(QAbstractItemView::NoEditTriggers);
   l->addWidget(t, 1);
+  connect(t, &QTableWidget::cellDoubleClicked, this, [this, t](int row, int) {
+    if (auto* item = t->item(row, 0)) showBookingDetails(item->data(Qt::UserRole).toLongLong());
+  });
+  auto applyFilters = [this] { refreshCurrentPage(); };
+  connect(search, &QLineEdit::textChanged, this, applyFilters);
+  connect(labFilter, &QLineEdit::textChanged, this, applyFilters);
+  connect(departmentFilter, &QLineEdit::textChanged, this, applyFilters);
+  connect(fromFilter, &QDateEdit::dateChanged, this, applyFilters);
+  connect(toFilter, &QDateEdit::dateChanged, this, applyFilters);
+  connect(exportBtn, &QPushButton::clicked, this, [this, t] {
+    const QString path = QFileDialog::getSaveFileName(this, "Export Filtered Approvals", "LabBooker-Approvals.csv", "CSV files (*.csv)");
+    if (path.isEmpty()) return;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+      QMessageBox::warning(this, "Export Failed", file.errorString());
+      return;
+    }
+    QTextStream out(&file);
+    auto escapeCsv = [](QString value) { value.replace('"', "\"\""); return '"' + value + '"'; };
+    out << "Reference,Requester,Department,Laboratory,Date,Time,Equipment,Purpose\n";
+    for (int row = 0; row < t->rowCount(); ++row) {
+      if (t->isRowHidden(row)) continue;
+      QStringList fields;
+      for (int col = 0; col < 7; ++col) {
+        fields << escapeCsv(t->item(row, col) ? t->item(row, col)->text() : QString());
+        if (col == 1) fields << escapeCsv(t->item(row, col)->data(Qt::UserRole + 1).toString());
+      }
+      out << fields.join(',') << '\n';
+    }
+    file.close();
+    QMessageBox::information(this, "Exported", "Filtered approvals exported to CSV.");
+  });
 
   return w;
 }
@@ -2098,12 +2425,38 @@ QWidget* MainWindow::adminBookings() {
   auto* markComplete = createButton("Mark Completed", "success");
   auto* cancelSelected = createButton("Cancel Booking", "danger");
   auto* refreshBtn = createButton("Refresh", "secondary");
+  auto* exportBtn = createButton("Export CSV", "secondary");
 
   bar->addWidget(search, 1);
   bar->addWidget(markComplete);
   bar->addWidget(cancelSelected);
   bar->addWidget(refreshBtn);
+  bar->addWidget(exportBtn);
   l->addLayout(bar);
+  auto* filters = new QHBoxLayout;
+  auto* statusFilter = new QComboBox;
+  statusFilter->setObjectName("adminBookingsStatus");
+  statusFilter->addItems({"All statuses", "Pending", "Approved", "Rejected", "Cancelled", "Completed"});
+  auto* labFilter = new QLineEdit;
+  labFilter->setObjectName("adminBookingsLab");
+  labFilter->setPlaceholderText("Filter laboratory");
+  auto* departmentFilter = new QLineEdit;
+  departmentFilter->setObjectName("adminBookingsDepartment");
+  departmentFilter->setPlaceholderText("Filter department");
+  auto* fromFilter = new QDateEdit(QDate(2000, 1, 1));
+  fromFilter->setObjectName("adminBookingsFrom");
+  fromFilter->setCalendarPopup(true);
+  auto* toFilter = new QDateEdit(QDate(2100, 12, 31));
+  toFilter->setObjectName("adminBookingsTo");
+  toFilter->setCalendarPopup(true);
+  filters->addWidget(statusFilter);
+  filters->addWidget(labFilter);
+  filters->addWidget(departmentFilter);
+  filters->addWidget(new QLabel("From"));
+  filters->addWidget(fromFilter);
+  filters->addWidget(new QLabel("To"));
+  filters->addWidget(toFilter);
+  l->addLayout(filters);
 
   auto* t = new QTableWidget(0, 8);
   t->setObjectName("adminBookingsTable");
@@ -2114,9 +2467,49 @@ QWidget* MainWindow::adminBookings() {
   t->setSelectionMode(QAbstractItemView::SingleSelection);
   t->setEditTriggers(QAbstractItemView::NoEditTriggers);
   l->addWidget(t, 1);
+  markComplete->setEnabled(false);
+  connect(t, &QTableWidget::cellDoubleClicked, this, [this, t](int row, int) {
+    if (auto* item = t->item(row, 0)) showBookingDetails(item->data(Qt::UserRole).toLongLong());
+  });
+  cancelSelected->setEnabled(false);
+  connect(t, &QTableWidget::itemSelectionChanged, this, [this, t, markComplete, cancelSelected] {
+    const auto* item = t->currentRow() >= 0 ? t->item(t->currentRow(), 0) : nullptr;
+    const auto booking = item ? m_db.bookingById(item->data(Qt::UserRole).toLongLong()) : std::nullopt;
+    markComplete->setEnabled(booking && booking->status == BookingStatus::Approved);
+    cancelSelected->setEnabled(booking && (booking->status == BookingStatus::Pending || booking->status == BookingStatus::Approved));
+  });
 
   connect(refreshBtn, &QPushButton::clicked, this, [this] { refreshCurrentPage(); });
-  connect(search, &QLineEdit::textChanged, this, [t](const QString& term) { filterTableRows(t, term); });
+  auto applyFilters = [this] { refreshCurrentPage(); };
+  connect(search, &QLineEdit::textChanged, this, applyFilters);
+  connect(statusFilter, &QComboBox::currentIndexChanged, this, applyFilters);
+  connect(labFilter, &QLineEdit::textChanged, this, applyFilters);
+  connect(departmentFilter, &QLineEdit::textChanged, this, applyFilters);
+  connect(fromFilter, &QDateEdit::dateChanged, this, applyFilters);
+  connect(toFilter, &QDateEdit::dateChanged, this, applyFilters);
+  connect(exportBtn, &QPushButton::clicked, this, [this, t] {
+    const QString path = QFileDialog::getSaveFileName(this, "Export Filtered Bookings", "LabBooker-Bookings.csv", "CSV files (*.csv)");
+    if (path.isEmpty()) return;
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+      QMessageBox::warning(this, "Export Failed", file.errorString());
+      return;
+    }
+    QTextStream out(&file);
+    auto escapeCsv = [](QString value) { value.replace('"', "\"\""); return '"' + value + '"'; };
+    out << "Reference,Requester,Department,Laboratory,Date,Time,Equipment,Purpose,Status\n";
+    for (int row = 0; row < t->rowCount(); ++row) {
+      if (t->isRowHidden(row)) continue;
+      QStringList fields;
+      for (int col = 0; col < t->columnCount(); ++col) {
+        fields << escapeCsv(t->item(row, col) ? t->item(row, col)->text() : QString());
+        if (col == 1) fields << escapeCsv(t->item(row, col)->data(Qt::UserRole + 1).toString());
+      }
+      out << fields.join(',') << '\n';
+    }
+    file.close();
+    QMessageBox::information(this, "Exported", "Filtered bookings exported to CSV.");
+  });
   connect(markComplete, &QPushButton::clicked, this, [this, t] {
     if (t->currentRow() < 0) return;
     const qint64 id = t->item(t->currentRow(), 0)->data(Qt::UserRole).toLongLong();
@@ -2171,6 +2564,13 @@ QWidget* MainWindow::laboratoriesPage() {
   t->setSelectionMode(QAbstractItemView::SingleSelection);
   t->setEditTriggers(QAbstractItemView::NoEditTriggers);
   l->addWidget(t, 1);
+  editBtn->setEnabled(false);
+  toggleActive->setEnabled(false);
+  connect(t, &QTableWidget::itemSelectionChanged, this, [t, editBtn, toggleActive] {
+    const bool selected = t->currentRow() >= 0;
+    editBtn->setEnabled(selected);
+    toggleActive->setEnabled(selected);
+  });
 
   connect(search, &QLineEdit::textChanged, this, [this] { refreshCurrentPage(); });
   connect(addBtn, &QPushButton::clicked, this, [this] { addLaboratoryDialog(); });
@@ -2564,7 +2964,16 @@ QWidget* MainWindow::profilePage() {
 }
 
 QWidget* MainWindow::settingsPage() {
+  auto* page = new QWidget;
+  auto* outer = new QVBoxLayout(page);
+  outer->setContentsMargins(0, 0, 0, 0);
+  auto* scroll = new QScrollArea;
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  outer->addWidget(scroll);
   auto* w = new QWidget;
+  scroll->setWidget(w);
   auto* l = new QVBoxLayout(w);
   l->setContentsMargins(32, 28, 32, 32);
   l->setSpacing(20);
@@ -2596,6 +3005,82 @@ QWidget* MainWindow::settingsPage() {
     p.setValue("appearance/theme", val);
     applyTheme(val);
   });
+
+  if (m_user->role() == UserRole::Administrator) {
+    auto* contactCard = new QFrame;
+    contactCard->setObjectName("settingsCard");
+    contactCard->setMaximumWidth(800);
+    auto* contactLayout = new QVBoxLayout(contactCard);
+    contactLayout->addWidget(new QLabel("Administrator contact shown on the sign-in screen"));
+    auto* contactEdit = new QPlainTextEdit(QSettings().value("university/adminContact").toString());
+    contactEdit->setPlaceholderText("Department, email, office, hours and phone");
+    contactEdit->setMaximumHeight(100);
+    contactLayout->addWidget(contactEdit);
+    auto* saveContact = createButton("Save Contact Details", "secondary");
+    contactLayout->addWidget(saveContact);
+    connect(saveContact, &QPushButton::clicked, this, [contactEdit] {
+      QSettings().setValue("university/adminContact", contactEdit->toPlainText().trimmed());
+      QMessageBox::information(contactEdit, "Saved", "The sign-in help now shows these contact details.");
+    });
+    l->addWidget(contactCard);
+
+    auto* scheduleCard = new QFrame;
+    scheduleCard->setObjectName("settingsCard");
+    scheduleCard->setMaximumWidth(800);
+    auto* scheduleLayout = new QFormLayout(scheduleCard);
+    scheduleLayout->setContentsMargins(24, 20, 24, 20);
+    const auto currentSlots = m_db.bookingSlots();
+    auto* morning = new QTimeEdit(currentSlots[0].start);
+    morning->setDisplayFormat("h:mm AP");
+    auto* afternoon = new QTimeEdit(currentSlots[2].start);
+    afternoon->setDisplayFormat("h:mm AP");
+    scheduleLayout->addRow("First morning session", morning);
+    scheduleLayout->addRow("First afternoon session", afternoon);
+    scheduleLayout->addRow(new QLabel("Each session lasts two hours. The second session in each half-day starts immediately after the first."));
+    auto* saveSchedule = createButton("Save Booking Schedule", "primary");
+    scheduleLayout->addRow(saveSchedule);
+    connect(saveSchedule, &QPushButton::clicked, this, [this, morning, afternoon] {
+      const auto result = m_db.setBookingSchedule(morning->time(), afternoon->time());
+      if (!result.ok) QMessageBox::warning(this, "Schedule Not Saved", result.error);
+      else {
+        refreshLaboratoryCombos();
+        QMessageBox::information(this, "Schedule Saved", "New booking requests now use the updated four sessions.");
+      }
+    });
+
+    auto* closureDate = new QDateEdit(QDate::currentDate());
+    closureDate->setCalendarPopup(true);
+    auto* addClosure = createButton("Close This Date", "secondary");
+    auto* removeClosure = createButton("Reopen This Date", "secondary");
+    auto* closureRow = new QWidget;
+    auto* closureLayout = new QHBoxLayout(closureRow);
+    closureLayout->setContentsMargins(0, 0, 0, 0);
+    closureLayout->addWidget(closureDate);
+    closureLayout->addWidget(addClosure);
+    closureLayout->addWidget(removeClosure);
+    scheduleLayout->addRow("Holiday / closure", closureRow);
+    auto* closureList = new QLabel;
+    closureList->setWordWrap(true);
+    scheduleLayout->addRow("Closed dates", closureList);
+    auto refreshClosures = [this, closureList] {
+      QStringList dates;
+      for (const auto& date : m_db.closedDates()) dates << date.toString("ddd, d MMM yyyy");
+      closureList->setText(dates.isEmpty() ? "None" : dates.join(", "));
+      refreshLaboratoryCombos();
+    };
+    connect(addClosure, &QPushButton::clicked, this, [this, closureDate, refreshClosures] {
+      const auto result = m_db.setClosedDate(closureDate->date(), true);
+      if (!result.ok) QMessageBox::warning(this, "Closure Not Saved", result.error);
+      else refreshClosures();
+    });
+    connect(removeClosure, &QPushButton::clicked, this, [this, closureDate, refreshClosures] {
+      const auto result = m_db.setClosedDate(closureDate->date(), false);
+      if (!result.ok) QMessageBox::warning(this, "Closure Not Removed", result.error);
+      else refreshClosures();
+    });
+    refreshClosures();
+    l->addWidget(scheduleCard);
+  }
 
   // Password Change Card
   auto* pwCard = new QFrame;
@@ -2643,7 +3128,28 @@ QWidget* MainWindow::settingsPage() {
   });
 
   l->addStretch();
-  return w;
+  return page;
+}
+
+QWidget* MainWindow::updatesPage() {
+  auto* page = new QWidget;
+  auto* layout = new QVBoxLayout(page);
+  layout->setContentsMargins(32, 28, 32, 32);
+  layout->setSpacing(16);
+  auto* title = new QLabel("Booking Updates");
+  title->setStyleSheet("font-size: 20px; font-weight: 700;");
+  layout->addWidget(title);
+  layout->addWidget(new QLabel("Approved, rejected, completed and cancelled bookings. Double-click a row for details."));
+  auto* table = new QTableWidget(0, 4);
+  table->setObjectName("updatesTable");
+  table->setHorizontalHeaderLabels({"Update", "When", "Booking ID", "Details"});
+  configureDataTable(table);
+  table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+  layout->addWidget(table, 1);
+  connect(table, &QTableWidget::cellDoubleClicked, this, [this, table](int row, int) {
+    if (auto* item = table->item(row, 0)) showBookingDetails(item->data(Qt::UserRole).toLongLong());
+  });
+  return page;
 }
 
 QWidget* MainWindow::simpleTable(const QString& title, const QStringList&) {

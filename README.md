@@ -22,11 +22,14 @@ On this Windows workspace the Qt kit is also available at `C:/msys64/ucrt64`. If
 
 The application stores `labbooker.sqlite` under Qt's application data directory (on this Windows installation, `%APPDATA%\Team 13\LabBooker`). It prompts for the initial administrator on an empty database. No credentials are embedded in the source. Back up the database before replacing an installation; never substitute a demo database for existing user data.
 
+The current build upgrades existing databases to schema version 4 on first launch to store booking session times and closure dates. Back up the database before launching the new build against existing data.
+
 ## Features
 
 - Student and lecturer registration, administrator approval, authentication, profile and password management.
-- Role-aware dashboard, laboratory availability, four fixed weekday booking slots, equipment requests, personal bookings, cancellation, and decision history.
-- Administrator approval queue, all-booking management and search, laboratory/equipment/user management, filtered reports and PDF export.
+- Role-aware dashboard, weekly availability grid, four configurable two-hour weekday booking slots, equipment requests, personal bookings, cancellation, booking details, decision history, and persistent in-app notifications.
+- Administrator approval queue and all-booking management with laboratory, department and date filters, booking status filtering, CSV export, laboratory/equipment/user management, filtered reports and PDF export.
+- Administrator settings for booking session times, holiday/closure dates, and sign-in contact details. Closure and schedule changes are blocked while they conflict with upcoming active bookings.
 - Light and dark themes, role-aware sidebar with separate New Booking and My Bookings pages, per-user booking count, collapsible navigation, and consistent data tables.
 
 See [rebuild inventory](docs/REBUILD_AUDIT.md) for the complete feature map, schema, backup and regression checklist. `LabBookerTests` covers domain and database rules; `LabBookerUiTests` covers key navigation and UI wiring using a temporary database.

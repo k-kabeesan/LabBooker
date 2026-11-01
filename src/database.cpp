@@ -69,12 +69,22 @@ ServiceResult DatabaseManager::execute(const QString& sql) const{
   QSqlQuery query(m_db);
   return query.exec(sql)?ServiceResult::success():ServiceResult::failure(sqlError(query));
 }
+ServiceResult DatabaseManager::addNotification(qint64 userId, qint64 bookingId, const QString& action, const QString& description) {
+  QSqlQuery query(m_db);
+  query.prepare("INSERT INTO audit_log(user_id,action,entity_type,entity_id,timestamp,description) VALUES(?,?,'Notification',?,?,?)");
+  query.addBindValue(userId);
+  query.addBindValue(action);
+  query.addBindValue(bookingId > 0 ? QVariant(bookingId) : QVariant());
+  query.addBindValue(nowUtc());
+  query.addBindValue(description);
+  return query.exec() ? ServiceResult::success() : ServiceResult::failure(sqlError(query));
+}
 ServiceResult DatabaseManager::migrate(){
   QSqlQuery versionQuery(m_db);
   if(!versionQuery.exec("PRAGMA user_version")||!versionQuery.next())return ServiceResult::failure(sqlError(versionQuery));
   int version=versionQuery.value(0).toInt();
   versionQuery.finish();
-  if(version>3)return ServiceResult::failure("This database was created by a newer LabBook version.");
+  if(version>4)return ServiceResult::failure("This database was created by a newer LabBook version.");
   if(version==0){
     QFile schema(":/database/schema.sql");
     if(!schema.open(QIODevice::ReadOnly))return ServiceResult::failure("Database schema resource is missing.");
@@ -87,7 +97,7 @@ ServiceResult DatabaseManager::migrate(){
       result=execute(statement);
       if(!result.ok){execute("ROLLBACK");return result;}
     }
-    result=execute("PRAGMA user_version=3");
+    result=execute("PRAGMA user_version=4");
     if(!result.ok){execute("ROLLBACK");return result;}
     result=execute("COMMIT");
     if(!result.ok){execute("ROLLBACK");return result;}
@@ -133,7 +143,21 @@ ServiceResult DatabaseManager::migrate(){
       if(!changed.ok)return changed;
       return execute("PRAGMA user_version=3");
     });
-    return result;
+    return result.ok ? migrate() : result;
+  }
+  if(version==3){
+    return transaction([&]{
+      for (const auto& sql : {
+        "CREATE TABLE IF NOT EXISTS booking_schedule (id INTEGER PRIMARY KEY CHECK(id = 1), morning_start TEXT NOT NULL DEFAULT '08:30', afternoon_start TEXT NOT NULL DEFAULT '13:30')",
+        "INSERT OR IGNORE INTO booking_schedule(id,morning_start,afternoon_start) VALUES(1,'08:30','13:30')",
+        "CREATE TABLE IF NOT EXISTS closed_dates (closed_date TEXT PRIMARY KEY)",
+        "PRAGMA user_version=4"
+      }) {
+        const auto result = execute(sql);
+        if (!result.ok) return result;
+      }
+      return ServiceResult::success();
+    });
   }
   return {};
 }
@@ -149,6 +173,66 @@ ServiceResult DatabaseManager::transaction(const std::function<ServiceResult()>&
 bool DatabaseManager::hasUsers() const{
   QSqlQuery q(m_db);
   return q.exec("SELECT 1 FROM users LIMIT 1")&&q.next();
+}
+QVector<FixedBookingSlot> DatabaseManager::bookingSlots() const {
+  QTime morning(8, 30), afternoon(13, 30);
+  QSqlQuery query(m_db);
+  if (query.exec("SELECT morning_start, afternoon_start FROM booking_schedule WHERE id=1") && query.next()) {
+    const QTime a = QTime::fromString(query.value(0).toString(), "HH:mm");
+    const QTime b = QTime::fromString(query.value(1).toString(), "HH:mm");
+    if (a.isValid() && b.isValid()) { morning = a; afternoon = b; }
+  }
+  const QVector<QTime> starts{morning, morning.addSecs(7200), afternoon, afternoon.addSecs(7200)};
+  QVector<FixedBookingSlot> result;
+  for (int i = 0; i < starts.size(); ++i) {
+    const QTime end = starts[i].addSecs(7200);
+    const QString label = starts[i].toString("h:mm AP") + " – " + end.toString("h:mm AP");
+    result.push_back({i + 1, starts[i], end, label, QString("Slot %1 (%2)").arg(i + 1).arg(label)});
+  }
+  return result;
+}
+bool DatabaseManager::isClosedDate(const QDate& date) const {
+  if (isWeekend(date)) return true;
+  QSqlQuery query(m_db);
+  query.prepare("SELECT 1 FROM closed_dates WHERE closed_date=?");
+  query.addBindValue(date.toString(Qt::ISODate));
+  return query.exec() && query.next();
+}
+QVector<QDate> DatabaseManager::closedDates() const {
+  QVector<QDate> dates;
+  QSqlQuery query(m_db);
+  if (query.exec("SELECT closed_date FROM closed_dates ORDER BY closed_date"))
+    while (query.next()) dates.push_back(QDate::fromString(query.value(0).toString(), Qt::ISODate));
+  return dates;
+}
+ServiceResult DatabaseManager::setBookingSchedule(const QTime& morningStart, const QTime& afternoonStart) {
+  if (!morningStart.isValid() || !afternoonStart.isValid() || morningStart < QTime(6, 0) ||
+      morningStart.secsTo(afternoonStart) < 14400 || afternoonStart > QTime(18, 0))
+    return ServiceResult::failure("Choose two morning sessions and two afternoon sessions, with a break between them.");
+  QSqlQuery active(m_db);
+  active.prepare("SELECT 1 FROM bookings WHERE status IN ('Pending','Approved') AND booking_date >= ? LIMIT 1");
+  active.addBindValue(QDate::currentDate().toString(Qt::ISODate));
+  if (!active.exec()) return ServiceResult::failure(sqlError(active));
+  if (active.next()) return ServiceResult::failure("Resolve upcoming pending and approved bookings before changing session times.");
+  QSqlQuery query(m_db);
+  query.prepare("UPDATE booking_schedule SET morning_start=?, afternoon_start=? WHERE id=1");
+  query.addBindValue(morningStart.toString("HH:mm"));
+  query.addBindValue(afternoonStart.toString("HH:mm"));
+  return query.exec() ? ServiceResult::success() : ServiceResult::failure(sqlError(query));
+}
+ServiceResult DatabaseManager::setClosedDate(const QDate& date, bool closed) {
+  if (!date.isValid()) return ServiceResult::failure("Choose a valid closure date.");
+  if (closed) {
+    QSqlQuery active(m_db);
+    active.prepare("SELECT 1 FROM bookings WHERE booking_date=? AND status IN ('Pending','Approved') LIMIT 1");
+    active.addBindValue(date.toString(Qt::ISODate));
+    if (!active.exec()) return ServiceResult::failure(sqlError(active));
+    if (active.next()) return ServiceResult::failure("Resolve pending and approved bookings on this date before closing it.");
+  }
+  QSqlQuery query(m_db);
+  query.prepare(closed ? "INSERT OR IGNORE INTO closed_dates(closed_date) VALUES(?)" : "DELETE FROM closed_dates WHERE closed_date=?");
+  query.addBindValue(date.toString(Qt::ISODate));
+  return query.exec() ? ServiceResult::success() : ServiceResult::failure(sqlError(query));
 }
 QVector<UserRecord> DatabaseManager::users(QString filter,bool includeInactive) const{
   QVector<UserRecord> out;
@@ -214,7 +298,8 @@ ServiceResult DatabaseManager::setUserActive(qint64 id,bool active){
 ServiceResult DatabaseManager::setUserApproved(qint64 id,bool approved){
   QSqlQuery q(m_db);q.prepare("UPDATE users SET approved=?,updated_at=? WHERE user_id=?");q.addBindValue(approved?1:0);q.addBindValue(nowUtc());q.addBindValue(id);
   if(!q.exec())return ServiceResult::failure(sqlError(q));
-  return q.numRowsAffected()?ServiceResult::success():ServiceResult::failure("User was not found.");
+  if (!q.numRowsAffected()) return ServiceResult::failure("User was not found.");
+  return approved ? addNotification(id, 0, "Account approved", "Your account is approved. You can now sign in.") : ServiceResult::success();
 }
 QVector<Laboratory> DatabaseManager::laboratories(bool includeInactive) const{
   QVector<Laboratory> out;
@@ -298,6 +383,16 @@ QVector<BookingApproval> DatabaseManager::bookingApprovals(qint64 bookingId) con
   while(q.next()){BookingApproval a;a.id=q.value(0).toLongLong();a.bookingId=q.value(1).toLongLong();a.adminId=q.value(2).toLongLong();a.action=q.value(3).toString();a.comment=q.value(4).toString();a.actionTime=q.value(5).toString();a.adminName=q.value(6).toString();out.push_back(a);}
   return out;
 }
+QVector<AppNotification> DatabaseManager::notificationsForUser(qint64 userId) const {
+  QVector<AppNotification> notifications;
+  QSqlQuery query(m_db);
+  query.prepare("SELECT log_id,entity_id,action,description,timestamp FROM audit_log WHERE user_id=? AND entity_type='Notification' ORDER BY timestamp DESC,log_id DESC");
+  query.addBindValue(userId);
+  if (!query.exec()) return notifications;
+  while (query.next()) notifications.push_back({query.value(0).toLongLong(), query.value(1).toLongLong(),
+    query.value(2).toString(), query.value(3).toString(), query.value(4).toString()});
+  return notifications;
+}
 QVector<BookedEquipment> DatabaseManager::equipmentForBooking(qint64 bookingId) const{
   QVector<BookedEquipment> out;QSqlQuery q(m_db);
   q.prepare("SELECT be.equipment_id,e.equipment_name,be.qty_requested FROM booking_equipment be JOIN equipment e ON e.equipment_id=be.equipment_id WHERE be.booking_id=? ORDER BY e.equipment_name");
@@ -356,9 +451,11 @@ ServiceResult DatabaseManager::updateBooking(const Booking& booking,const Bookin
     line.addBindValue(booking.id);line.addBindValue(item.first);line.addBindValue(item.second);
     if(!line.exec())return ServiceResult::failure(sqlError(line));
   }
-  return {};
+  return addNotification(booking.userId, booking.id, "Booking changed", "Booking " + booking.reference + " was updated and remains pending review.");
 }
 ServiceResult DatabaseManager::setBookingStatus(qint64 id,BookingStatus status,qint64 reviewer,const QString& note){
+  const auto existing = bookingById(id);
+  if (!existing) return ServiceResult::failure("Booking was not found.");
   const QString action=toString(status);
   if(status!=BookingStatus::Approved&&status!=BookingStatus::Rejected&&status!=BookingStatus::Cancelled&&status!=BookingStatus::Completed)
     return ServiceResult::failure("That booking action is not allowed.");
@@ -374,11 +471,14 @@ ServiceResult DatabaseManager::setBookingStatus(qint64 id,BookingStatus status,q
   if(status==BookingStatus::Cancelled&&roleQuery.value(0).toInt()!=3){
     QSqlQuery audit(m_db);audit.prepare("INSERT INTO audit_log(user_id,action,entity_type,entity_id,timestamp,description) VALUES(?,?,?,?,?,?)");
     audit.addBindValue(reviewer);audit.addBindValue("Cancelled");audit.addBindValue("Booking");audit.addBindValue(id);audit.addBindValue(nowUtc());audit.addBindValue(nonNull(note.trimmed()));
-    return audit.exec()?ServiceResult::success():ServiceResult::failure(sqlError(audit));
+    if (!audit.exec()) return ServiceResult::failure(sqlError(audit));
+    return addNotification(existing->userId, id, "Booking cancelled", "Booking " + existing->reference + " was cancelled.");
   }
   QSqlQuery history(m_db);history.prepare("INSERT INTO booking_approvals(booking_id,admin_id,action,comment,action_time) VALUES(?,?,?,?,?)");
   history.addBindValue(id);history.addBindValue(reviewer);history.addBindValue(action);history.addBindValue(nonNull(note.trimmed()));history.addBindValue(nowUtc());
-  return history.exec()?ServiceResult::success():ServiceResult::failure(sqlError(history));
+  if (!history.exec()) return ServiceResult::failure(sqlError(history));
+  return addNotification(existing->userId, id, "Booking " + action.toLower(),
+    "Booking " + existing->reference + " was " + action.toLower() + (note.trimmed().isEmpty() ? "." : ": " + note.trimmed()));
 }
 ServiceResult DatabaseManager::cancelBooking(qint64 id,qint64 actorId,const QString& note){
   return setBookingStatus(id,BookingStatus::Cancelled,actorId,note);

@@ -100,6 +100,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
   timestamp TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS booking_schedule (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  morning_start TEXT NOT NULL DEFAULT '08:30',
+  afternoon_start TEXT NOT NULL DEFAULT '13:30'
+);
+INSERT OR IGNORE INTO booking_schedule(id,morning_start,afternoon_start) VALUES(1,'08:30','13:30');
+CREATE TABLE IF NOT EXISTS closed_dates (closed_date TEXT PRIMARY KEY);
 
 CREATE INDEX IF NOT EXISTS idx_users_eid ON users(eid);
 CREATE INDEX IF NOT EXISTS idx_users_name ON users(name);

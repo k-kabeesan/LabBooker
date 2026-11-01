@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QVector>
 #include <QPair>
+#include <QPixmap>
 
 class QLineEdit;
 class QTableWidget;
@@ -13,6 +14,7 @@ class QPushButton;
 class QComboBox;
 class QDateEdit;
 class QTimeEdit;
+class QResizeEvent;
 
 class MainWindow final : public QMainWindow {
   Q_OBJECT
@@ -44,6 +46,7 @@ private:
   QWidget* reportsPage();
   QWidget* profilePage();
   QWidget* settingsPage();
+  QWidget* updatesPage();
   QWidget* simpleTable(const QString&, const QStringList&);
 
   void applyTheme(const QString& theme);
@@ -59,6 +62,7 @@ private:
   void editEquipmentDialog(qint64 id = 0);
 
   void refreshLaboratoryCombos();
+  void showBookingDetails(qint64 bookingId);
 
   // Cross-page widgets & combos
   QComboBox* m_availabilityLabCombo{};
@@ -82,12 +86,16 @@ class LoginWindow final : public QWidget {
 public:
   LoginWindow(DatabaseManager&, QWidget* parent = nullptr);
   void reset();
+protected:
+  void resizeEvent(QResizeEvent* event) override;
 private:
   DatabaseManager& m_db;
   QLineEdit* m_eid{};
   QLineEdit* m_password{};
   QCheckBox* m_remember{};
   QLabel* m_status{};
+  QLabel* m_backgroundLabel{};
+  QPixmap m_loginBackground;
   void login();
   void requestAccount();
 signals:

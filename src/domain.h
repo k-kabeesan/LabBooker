@@ -94,6 +94,10 @@ struct BookingApproval {
   QString action,comment,adminName;
   QString actionTime;
 };
+struct AppNotification {
+  qint64 id{}, bookingId{};
+  QString action, description, timestamp;
+};
 struct FixedBookingSlot {
   int id{};
   QTime start;

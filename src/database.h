@@ -24,6 +24,11 @@ public:
   ServiceResult addLaboratory(const Laboratory&);
   ServiceResult updateLaboratory(const Laboratory&);
   ServiceResult setLaboratoryActive(qint64 id,bool active);
+  QVector<FixedBookingSlot> bookingSlots() const;
+  bool isClosedDate(const QDate& date) const;
+  QVector<QDate> closedDates() const;
+  ServiceResult setBookingSchedule(const QTime& morningStart, const QTime& afternoonStart);
+  ServiceResult setClosedDate(const QDate& date, bool closed);
   QVector<Equipment> equipment(bool includeInactive=false) const;
   ServiceResult addEquipment(const Equipment&);
   ServiceResult updateEquipment(const Equipment&);
@@ -32,6 +37,7 @@ public:
   QVector<Booking> allBookings(bool pendingOnly=false) const;
   std::optional<Booking> bookingById(qint64 id) const;
   QVector<BookingApproval> bookingApprovals(qint64 bookingId) const;
+  QVector<AppNotification> notificationsForUser(qint64 userId) const;
   QVector<BookedEquipment> equipmentForBooking(qint64 bookingId) const;
   bool isAvailable(qint64 labId,const QDate& date,const QTime& start,const QTime& end,qint64 exclude=-1) const;
   ServiceResult checkEquipmentAvailability(qint64 labId,const QDate&,const QTime&,const QTime&,const QVector<QPair<qint64,int>>&,qint64 exclude=-1) const;
@@ -45,4 +51,5 @@ private:
   QSqlDatabase m_db;
   ServiceResult migrate();
   ServiceResult execute(const QString& sql) const;
+  ServiceResult addNotification(qint64 userId, qint64 bookingId, const QString& action, const QString& description);
 };

@@ -12,10 +12,62 @@
 #include <QTimer>
 #include <QSpinBox>
 #include <QDialog>
+#include <QCheckBox>
 
 class UiTests : public QObject {
   Q_OBJECT
 private slots:
+  void editingRestoresEquipmentAndResetClearsIt() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    DatabaseManager db(directory.filePath("edit.sqlite"));
+    QVERIFY(db.open().ok);
+    UserRecord adminRecord; adminRecord.eid = "ADMIN"; adminRecord.name = "Admin"; adminRecord.role = UserRole::Administrator;
+    QVERIFY(AuthService(db).bootstrap(adminRecord, "admin-password").ok);
+    auto admin = AuthService(db).authenticate("ADMIN", "admin-password");
+    QVERIFY(admin);
+    if (const QString screenshot = qEnvironmentVariable("LABBOOK_LOGIN_SCREENSHOT"); !screenshot.isEmpty()) {
+      LoginWindow login(db);
+      login.resize(1240, 800);
+      login.show();
+      QApplication::processEvents();
+      login.grab().save(screenshot);
+    }
+    UserRecord studentRecord; studentRecord.eid = "STUDENT"; studentRecord.name = "Student";
+    QVERIFY(UserManager(db).add(*admin, studentRecord, "student-password").ok);
+    auto student = AuthService(db).authenticate("STUDENT", "student-password");
+    QVERIFY(student);
+    Laboratory lab; lab.name = "Biology"; lab.number = "BIO-1"; lab.capacity = 20;
+    QVERIFY(LaboratoryManager(db).add(*admin, lab).ok);
+    Equipment item; item.labId = db.laboratories().first().id; item.name = "Microscope"; item.totalQty = 3; item.availableQty = 3;
+    QVERIFY(EquipmentManager(db).add(*admin, item).ok);
+    BookingRequest request; request.labId = item.labId; request.date = nextOperatingWeekday(QDate::currentDate().addDays(1));
+    request.start = QTime(8, 30); request.end = QTime(10, 30); request.purpose = "Practical";
+    request.equipment = {{db.equipment().first().id, 2}};
+    QVERIFY(BookingService(db).create(*student, request).ok);
+    MainWindow window(db, student);
+    window.navigateToPage("My Bookings");
+    auto* bookings = window.findChild<QTableWidget*>("myBookingsTable");
+    QVERIFY(bookings && bookings->rowCount() == 1);
+    bookings->setCurrentCell(0, 0);
+    QPushButton* edit = nullptr;
+    for (auto* button : window.findChildren<QPushButton*>()) if (button->text() == "Edit Pending") edit = button;
+    QVERIFY(edit);
+    edit->click();
+    auto* pages = window.findChild<QStackedWidget*>();
+    QVERIFY(pages);
+    QCheckBox* microscope = nullptr;
+    for (auto* check : pages->currentWidget()->findChildren<QCheckBox*>())
+      if (check->text().contains("Microscope")) microscope = check;
+    QVERIFY(microscope);
+    QVERIFY(microscope->isChecked());
+    QPushButton* reset = nullptr;
+    for (auto* button : pages->currentWidget()->findChildren<QPushButton*>()) if (button->text() == "Reset Form") reset = button;
+    QVERIFY(reset);
+    reset->click();
+    for (auto* check : pages->currentWidget()->findChildren<QCheckBox*>())
+      if (check->text().contains("Microscope")) QVERIFY(!check->isChecked());
+  }
   void navigationAndSearchRespectRoles() {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -32,6 +84,7 @@ private slots:
     UserRecord studentRecord;
     studentRecord.eid = "STUDENT";
     studentRecord.name = "Student One";
+    studentRecord.department = "Science";
     studentRecord.role = UserRole::Student;
     QVERIFY(UserManager(db).add(*admin, studentRecord, "student-password").ok);
     auto student = AuthService(db).authenticate("STUDENT", "student-password");
@@ -89,10 +142,21 @@ private slots:
     QVERIFY(!studentWindow.findChild<QTableWidget*>("usersTable"));
 
     MainWindow adminWindow(db, admin);
+    if (const QString screenshot = qEnvironmentVariable("LABBOOK_ADMIN_SCREENSHOT"); !screenshot.isEmpty()) {
+      adminWindow.resize(1280, 840);
+      adminWindow.show();
+      QApplication::processEvents();
+      adminWindow.grab().save(screenshot);
+    }
     for (const QString& page : {"Dashboard", "Availability", "All Bookings", "Approvals",
                                 "Laboratories", "Equipment", "Users", "Reports",
-                                "My Bookings", "New Booking", "Profile", "Settings"}) {
+                                "My Bookings", "New Booking", "Profile", "Updates", "Settings"}) {
       adminWindow.navigateToPage(page);
+      if (const QString screenshotDir = qEnvironmentVariable("LABBOOK_PAGES_SCREENSHOT_DIR"); !screenshotDir.isEmpty() &&
+          (page == "Availability" || page == "All Bookings" || page == "Settings" || page == "New Booking")) {
+        QApplication::processEvents();
+        adminWindow.grab().save(screenshotDir + "/" + page.toLower().replace(' ', '-') + ".png");
+      }
       auto* title = adminWindow.findChild<QLabel*>("pageTitle");
       QVERIFY(title);
       QCOMPARE(title->text(), page);
@@ -134,6 +198,26 @@ private slots:
     QVERIFY(table->isRowHidden(0));
     search->setText("Physics");
     QVERIFY(!table->isRowHidden(0));
+    auto* statusFilter = adminWindow.findChild<QComboBox*>("adminBookingsStatus");
+    QVERIFY(statusFilter);
+    statusFilter->setCurrentText("Approved");
+    QVERIFY(table->isRowHidden(0));
+    statusFilter->setCurrentText("Pending");
+    QVERIFY(!table->isRowHidden(0));
+    auto* departmentFilter = adminWindow.findChild<QLineEdit*>("adminBookingsDepartment");
+    QVERIFY(departmentFilter);
+    departmentFilter->setText("Engineering");
+    QVERIFY(table->isRowHidden(0));
+    departmentFilter->setText("Science");
+    QVERIFY(!table->isRowHidden(0));
+    adminWindow.navigateToPage("Approvals");
+    auto* approvalTable = adminWindow.findChild<QTableWidget*>("approvalsTable");
+    auto* approvalDepartment = adminWindow.findChild<QLineEdit*>("approvalsDepartment");
+    QVERIFY(approvalTable && approvalDepartment && approvalTable->rowCount() == 1);
+    approvalDepartment->setText("Engineering");
+    QVERIFY(approvalTable->isRowHidden(0));
+    approvalDepartment->setText("Science");
+    QVERIFY(!approvalTable->isRowHidden(0));
 
     auto* collapse = adminWindow.findChild<QPushButton*>("collapseNav");
     QVERIFY(collapse);

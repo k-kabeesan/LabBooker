@@ -38,6 +38,8 @@ private slots:
     const auto approved=UserManager(*m_db).approve(*m_admin,pending->id);QVERIFY2(approved.ok,qPrintable(approved.error));
     const auto user=AuthService(*m_db).authenticate("NEWSTU","student-password",&error);QVERIFY2(user,qPrintable(error));
     QVERIFY(m_db->userByEid("NEWSTU")->approved);
+    QCOMPARE(m_db->notificationsForUser(user->id()).size(), 1);
+    QCOMPARE(m_db->notificationsForUser(user->id()).first().action, QString("Account approved"));
   }
   void overlapBoundariesAndIsolation(){
     auto user=createStudent();auto lab=addLab("L1");auto other=addLab("L2");
@@ -105,6 +107,42 @@ private slots:
     QVERIFY(weekendSun.error.contains("weekend",Qt::CaseInsensitive));
     QVERIFY(!bookings.create(*user,request(lab.id,sunday,QTime(8,30),QTime(10,30))).ok);
   }
+  void configurableScheduleAndClosures(){
+    auto lab = addLab("Schedule Lab");
+    AvailabilityService availability(*m_db);
+    const QDate date = nextWeekday(QDate::currentDate().addDays(3));
+    QVERIFY(m_db->setBookingSchedule(QTime(9, 0), QTime(14, 0)).ok);
+    const auto configured = m_db->bookingSlots();
+    QCOMPARE(configured.size(), 4);
+    QCOMPARE(configured.first().start, QTime(9, 0));
+    QCOMPARE(configured.last().end, QTime(18, 0));
+    QVERIFY(availability.check(lab.id, date, QTime(9, 0), QTime(11, 0)));
+    QVERIFY(!availability.check(lab.id, date, QTime(8, 30), QTime(10, 30)));
+    QVERIFY(m_db->setClosedDate(date, true).ok);
+    QVERIFY(m_db->isClosedDate(date));
+    QVERIFY(!availability.check(lab.id, date, QTime(9, 0), QTime(11, 0)));
+    QVERIFY(m_db->setClosedDate(date, false).ok);
+    QVERIFY(availability.check(lab.id, date, QTime(9, 0), QTime(11, 0)));
+  }
+  void migratesVersionThreeSchedule() {
+    const QString path = m_dir.path() + "/version3-" + QUuid::createUuid().toString(QUuid::WithoutBraces) + ".sqlite";
+    {
+      DatabaseManager old(path);
+      QVERIFY(old.open().ok);
+      QSqlQuery query(old.db());
+      QVERIFY(query.exec("DROP TABLE booking_schedule"));
+      QVERIFY(query.exec("DROP TABLE closed_dates"));
+      QVERIFY(query.exec("PRAGMA user_version=3"));
+    }
+    DatabaseManager migrated(path);
+    const auto opened = migrated.open();
+    QVERIFY2(opened.ok, qPrintable(opened.error));
+    QCOMPARE(migrated.bookingSlots().size(), 4);
+    QSqlQuery version(migrated.db());
+    QVERIFY(version.exec("PRAGMA user_version"));
+    QVERIFY(version.next());
+    QCOMPARE(version.value(0).toInt(), 4);
+  }
   void bookingOwnershipReviewCancellationAndHistory(){
     auto student=createStudent();auto lab=addLab("L1");BookingService service(*m_db);AvailabilityService availability(*m_db);
     const auto date=nextWeekday(QDate::currentDate().addDays(2));auto r=request(lab.id,date,QTime(8,30),QTime(10,30));QString reference;
@@ -118,6 +156,7 @@ private slots:
     QVERIFY(!service.review(*student,booking.id,BookingStatus::Approved).ok);
     QVERIFY(!service.cancel(*m_admin,999).ok);
     QVERIFY(service.review(*m_admin,booking.id,BookingStatus::Approved,"Approved").ok);
+    QCOMPARE(m_db->notificationsForUser(student->id()).first().action, QString("Booking approved"));
 
     // While approved, slot is still blocked
     QVERIFY(!service.create(*student,r).ok);
@@ -270,7 +309,7 @@ private slots:
     QCOMPARE(migrated.userByEid("OLD")->name,QString("Old User"));
     QCOMPARE(migrated.bookingById(1)->reference,QString("LB-OLD"));
     QCOMPARE(migrated.equipment().first().notes,QString(""));
-    QSqlQuery q(migrated.db());QVERIFY(q.exec("PRAGMA user_version"));QVERIFY(q.next());QCOMPARE(q.value(0).toInt(),3);
+    QSqlQuery q(migrated.db());QVERIFY(q.exec("PRAGMA user_version"));QVERIFY(q.next());QCOMPARE(q.value(0).toInt(),4);
   }
 private:
   std::shared_ptr<User> createStudent(){

@@ -204,7 +204,7 @@ ServiceResult UserManager::approve(const User&actor,qint64 id){
   const auto user=m_db.userById(id);
   if(!user)return ServiceResult::failure("User was not found.");
   if(user->approved)return ServiceResult::failure("This account has already been approved.");
-  return m_db.setUserApproved(id,true);
+  return m_db.transaction([&]{ return m_db.setUserApproved(id,true); });
 }
 ServiceResult UserManager::deactivate(const User&actor,qint64 id){
   if(!hasPermission(actor,Permission::ManageUsers))return ServiceResult::failure("You do not have permission to manage users.");
@@ -262,18 +262,24 @@ bool AvailabilityService::check(qint64 lab,const QDate&date,const QTime&start,co
 ServiceResult AvailabilityService::validateRequest(qint64 lab,const QDate&date,const QTime&start,const QTime&end,qint64 exclude)const{
   if(lab<=0)return ServiceResult::failure("Select a laboratory.");
   if(!date.isValid())return ServiceResult::failure("Select a valid date.");
-  if(isWeekend(date))return ServiceResult::failure("Weekend bookings are not allowed. Operating days are Monday to Friday.");
+  if(isWeekend(date))return ServiceResult::failure("Weekend bookings are not allowed.");
+  if(m_db.isClosedDate(date))return ServiceResult::failure("The laboratory is closed on this date.");
   if(!start.isValid()||!end.isValid()||start>=end)return ServiceResult::failure("End time must be after start time.");
-  if(start<QTime(8,30)||end>QTime(17,30))return ServiceResult::failure("Operating hours are 8:30 AM to 5:30 PM.");
-  if(overlapsLunchBreak(start,end))return ServiceResult::failure("Bookings during lunch break (12:30 PM – 1:30 PM) are not allowed.");
-  if(start.secsTo(end)!=7200||!isFixedBookingSlot(start,end))return ServiceResult::failure("Booking duration must be exactly 2 hours matching one of the four fixed slots.");
+  const auto configuredSlots = m_db.bookingSlots();
+  if (start < configuredSlots.first().start || end > configuredSlots.last().end)
+    return ServiceResult::failure("This time is outside the configured operating hours.");
+  if (start < configuredSlots[2].start && end > configuredSlots[1].end)
+    return ServiceResult::failure("Bookings cannot overlap the lunch break.");
+  bool validSlot = false;
+  for (const auto& slot : configuredSlots) if (slot.start == start && slot.end == end) validSlot = true;
+  if(!validSlot)return ServiceResult::failure("Choose one of the four configured 2 hours sessions.");
   if(date<QDate::currentDate()||(date==QDate::currentDate()&&start<=QTime::currentTime()))return ServiceResult::failure("Choose a future date and time.");
   if(!m_db.isAvailable(lab,date,start,end,exclude))return ServiceResult::failure("Laboratory is already reserved or unavailable for this slot.");
   return {};
 }
 QVector<Laboratory> AvailabilityService::available(const QDate&date,const QTime&start,const QTime&end)const{
   QVector<Laboratory> result;
-  if(!date.isValid()||isWeekend(date)||!isFixedBookingSlot(start,end))return result;
+  if(!date.isValid()||m_db.isClosedDate(date))return result;
   for(const auto&lab:m_db.laboratories())if(check(lab.id,date,start,end))result.push_back(lab);
   return result;
 }
