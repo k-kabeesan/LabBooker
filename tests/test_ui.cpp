@@ -13,10 +13,53 @@
 #include <QSpinBox>
 #include <QDialog>
 #include <QCheckBox>
+#include <QAbstractItemView>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QWheelEvent>
 
 class UiTests : public QObject {
   Q_OBJECT
 private slots:
+  void sidebarScrollsToLastItem() {
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    DatabaseManager db(directory.filePath("sidebar.sqlite"));
+    QVERIFY(db.open().ok);
+    UserRecord adminRecord; adminRecord.eid = "ADMIN"; adminRecord.name = "Admin"; adminRecord.role = UserRole::Administrator;
+    QVERIFY(AuthService(db).bootstrap(adminRecord, "admin-password").ok);
+    auto admin = AuthService(db).authenticate("ADMIN", "admin-password");
+    QVERIFY(admin);
+
+    MainWindow window(db, admin);
+    window.resize(1000, 480);
+    window.show();
+    QApplication::processEvents();
+    auto* scroll = window.findChild<QScrollArea*>("navScroll");
+    auto* header = window.findChild<QFrame*>("brandHeader");
+    QVERIFY(scroll && header);
+    QVERIFY(scroll->verticalScrollBar()->maximum() > 0);
+    const int headerY = header->mapTo(&window, QPoint(0, 0)).y();
+    const QPointF position(scroll->viewport()->rect().center());
+    QWheelEvent wheel(position, scroll->viewport()->mapToGlobal(position.toPoint()),
+                      QPoint(), QPoint(0, -1200), Qt::NoButton, Qt::NoModifier,
+                      Qt::NoScrollPhase, false);
+    QApplication::sendEvent(scroll->viewport(), &wheel);
+    QApplication::processEvents();
+    QVERIFY(scroll->verticalScrollBar()->value() > 0);
+    scroll->verticalScrollBar()->setValue(scroll->verticalScrollBar()->maximum());
+    QApplication::processEvents();
+    QCOMPARE(header->mapTo(&window, QPoint(0, 0)).y(), headerY);
+    QPushButton* settings = nullptr;
+    for (auto* button : scroll->findChildren<QPushButton*>())
+      if (button->property("navPage").toString() == "Settings") settings = button;
+    QVERIFY(settings);
+    QVERIFY(settings->isVisible());
+    QVERIFY(scroll->viewport()->rect().contains(settings->mapTo(scroll->viewport(), settings->rect().center())));
+    settings->click();
+    QCOMPARE(window.findChild<QLabel*>("pageTitle")->text(), QString("Settings"));
+  }
+
   void editingRestoresEquipmentAndResetClearsIt() {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -125,6 +168,7 @@ private slots:
     auto* availabilityDate = studentPages->currentWidget()->findChild<QDateEdit*>();
     auto* calendarButton = studentPages->currentWidget()->findChild<QPushButton*>("calendarPickerButton");
     QVERIFY(availabilityDate && calendarButton);
+    QCOMPARE(availabilityDate->buttonSymbols(), QAbstractSpinBox::NoButtons);
     const QDate chosenDate = nextOperatingWeekday(availabilityDate->date().addDays(1));
     QTimer::singleShot(0, [&] {
       auto* dialog = QApplication::activeModalWidget();
@@ -183,12 +227,60 @@ private slots:
       facilityDialogChecked = dialog->findChildren<QLineEdit*>().size() >= 5
           && dialog->findChild<QSpinBox*>() && dialog->findChild<QComboBox*>()
           && dialog->findChild<QPushButton*>("facilityCancelButton");
+      auto* capacity = dialog->findChild<QSpinBox*>();
+      auto* status = dialog->findChild<QComboBox*>();
+      if (capacity && status) {
+        capacity->setValue(24);
+        QTest::mouseClick(capacity, Qt::LeftButton, {}, QPoint(capacity->width() - 13, 9));
+        facilityDialogChecked &= capacity->value() == 25;
+        QTest::mouseClick(capacity, Qt::LeftButton, {}, QPoint(capacity->width() - 13, capacity->height() - 9));
+        facilityDialogChecked &= capacity->value() == 24;
+        capacity->findChild<QLineEdit*>()->setText("31");
+        capacity->interpretText();
+        facilityDialogChecked &= capacity->value() == 31;
+        QTest::mouseClick(status, Qt::LeftButton, {}, QPoint(status->width() - 13, status->height() / 2));
+        facilityDialogChecked &= status->view()->isVisible();
+        status->hidePopup();
+        status->setCurrentIndex(1);
+        facilityDialogChecked &= status->currentText() == "Unavailable";
+      }
       const QString screenshot = qEnvironmentVariable("LABBOOK_FACILITY_SCREENSHOT");
       if (!screenshot.isEmpty()) dialog->grab().save(screenshot);
       dialog->reject();
     });
     editFacility->click();
     QVERIFY(facilityDialogChecked);
+    adminWindow.navigateToPage("Equipment");
+    auto* equipmentPages = adminWindow.findChild<QStackedWidget*>();
+    QPushButton* addEquipment = nullptr;
+    for (auto* button : equipmentPages->currentWidget()->findChildren<QPushButton*>())
+      if (button->text() == "Add Equipment") addEquipment = button;
+    QVERIFY(addEquipment);
+    bool equipmentControlsChecked = false;
+    QTimer::singleShot(150, [&] {
+      auto* dialog = QApplication::activeModalWidget();
+      if (!dialog) return;
+      const auto spins = dialog->findChildren<QSpinBox*>();
+      const auto combos = dialog->findChildren<QComboBox*>();
+      equipmentControlsChecked = spins.size() == 2 && combos.size() == 2;
+      if (equipmentControlsChecked) {
+        spins[0]->setValue(3);
+        QTest::mouseClick(spins[0], Qt::LeftButton, {}, QPoint(spins[0]->width() - 13, 9));
+        equipmentControlsChecked &= spins[0]->value() == 4;
+        QTest::mouseClick(spins[0], Qt::LeftButton, {}, QPoint(spins[0]->width() - 13, spins[0]->height() - 9));
+        equipmentControlsChecked &= spins[0]->value() == 3;
+        QTest::mouseClick(combos[0], Qt::LeftButton, {}, QPoint(combos[0]->width() - 13, combos[0]->height() / 2));
+        equipmentControlsChecked &= combos[0]->view()->isVisible();
+        combos[0]->hidePopup();
+        combos[1]->setCurrentIndex(1);
+        equipmentControlsChecked &= combos[1]->currentText() == "Unavailable";
+      }
+      const QString screenshot = qEnvironmentVariable("LABBOOK_EQUIPMENT_SCREENSHOT");
+      if (!screenshot.isEmpty()) dialog->grab().save(screenshot);
+      dialog->close();
+    });
+    addEquipment->click();
+    QVERIFY(equipmentControlsChecked);
     adminWindow.navigateToPage("All Bookings");
     auto* table = adminWindow.findChild<QTableWidget*>("adminBookingsTable");
     auto* search = adminWindow.findChild<QLineEdit*>("adminBookingsSearch");

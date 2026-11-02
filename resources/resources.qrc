@@ -6,4 +6,10 @@
     <file alias="labbooker.png">images/labbooker-logo.png</file>
     <file alias="login-background.png">images/login-background.png</file>
   </qresource>
+  <qresource prefix="/controls">
+    <file alias="dark-up.png">images/dark-up.png</file>
+    <file alias="dark-down.png">images/dark-down.png</file>
+    <file alias="light-up.png">images/light-up.png</file>
+    <file alias="light-down.png">images/light-down.png</file>
+  </qresource>
 </RCC>

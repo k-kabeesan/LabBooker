@@ -45,6 +45,21 @@
 
 namespace {
 
+QString inputArrowStyle(bool dark) {
+  const char* tone = dark ? "light" : "dark";
+  return QString(
+    "QComboBox, QSpinBox, QDateEdit, QTimeEdit { padding-right: 32px; }"
+    "QComboBox::drop-down, QDateEdit::drop-down { subcontrol-origin: border; subcontrol-position: center right; width: 28px; border: 0; background: transparent; }"
+    "QComboBox::down-arrow, QDateEdit::down-arrow { image: url(:/controls/%1-down.png); width: 12px; height: 8px; }"
+    "QSpinBox::up-button, QSpinBox::down-button, QDateEdit::up-button, QDateEdit::down-button, QTimeEdit::up-button, QTimeEdit::down-button { subcontrol-origin: border; width: 26px; border: 0; background: transparent; }"
+    "QSpinBox::up-button, QDateEdit::up-button, QTimeEdit::up-button { subcontrol-position: top right; height: 17px; }"
+    "QSpinBox::down-button, QDateEdit::down-button, QTimeEdit::down-button { subcontrol-position: bottom right; height: 17px; }"
+    "QSpinBox::up-arrow, QDateEdit::up-arrow, QTimeEdit::up-arrow { image: url(:/controls/%1-up.png); width: 12px; height: 8px; }"
+    "QSpinBox::down-arrow, QDateEdit::down-arrow, QTimeEdit::down-arrow { image: url(:/controls/%1-down.png); width: 12px; height: 8px; }"
+    "QSpinBox::up-button:hover, QSpinBox::down-button:hover, QDateEdit::up-button:hover, QDateEdit::down-button:hover, QTimeEdit::up-button:hover, QTimeEdit::down-button:hover, QComboBox::drop-down:hover, QDateEdit::drop-down:hover { background: %2; }"
+  ).arg(tone, dark ? "#334155" : "#e2e8f0");
+}
+
 QPushButton* createButton(const QString& text, const QString& styleClass = QString()) {
   auto* b = new QPushButton(text);
   b->setMinimumHeight(36);
@@ -239,6 +254,7 @@ void filterBookingRows(QTableWidget* table, const QString& query, const QString&
 QWidget* calendarDateControl(QDateEdit* dateEdit) {
   auto* control = new QWidget;
   control->setFocusProxy(dateEdit);
+  dateEdit->setButtonSymbols(QAbstractSpinBox::NoButtons);
   auto* row = new QHBoxLayout(control);
   row->setContentsMargins(0, 0, 0, 0);
   row->setSpacing(8);
@@ -307,7 +323,7 @@ void styleFormDialog(QDialog& dialog, QFormLayout& form) {
   form.setHorizontalSpacing(20);
   form.setVerticalSpacing(14);
   form.setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-  dialog.setStyleSheet(
+  dialog.setStyleSheet(QString(
     "QDialog { background: #ffffff; color: #0f172a; font-family: 'Segoe UI'; }"
     "QDialog QLabel { color: #334155; font-size: 13px; font-weight: 600; }"
     "QDialog QLineEdit, QDialog QComboBox, QDialog QSpinBox {"
@@ -320,7 +336,7 @@ void styleFormDialog(QDialog& dialog, QFormLayout& form) {
     "  background: #4f46e5; color: white; border: 0; border-radius: 8px; padding: 10px 18px; font-weight: 600; font-size: 13px; min-height: 20px;"
     "}"
     "QDialog QPushButton:hover { background: #4338ca; }"
-  );
+  ) + inputArrowStyle(false));
 }
 
 } // namespace
@@ -702,7 +718,7 @@ MainWindow::MainWindow(DatabaseManager& db, std::shared_ptr<User> u, QWidget* p)
   sidebar->setObjectName("sidebar");
   sidebar->setFixedWidth(280);
   auto* side = new QVBoxLayout(sidebar);
-  side->setContentsMargins(0, 0, 0, 16);
+  side->setContentsMargins(0, 0, 0, 0);
   side->setSpacing(2);
 
   // Brand Header
@@ -737,10 +753,26 @@ MainWindow::MainWindow(DatabaseManager& db, std::shared_ptr<User> u, QWidget* p)
   brandLayout->addWidget(collapseNav);
   side->addWidget(brandHeader);
 
+  auto* navScroll = new QScrollArea;
+  navScroll->setObjectName("navScroll");
+  navScroll->setWidgetResizable(true);
+  navScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  navScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  navScroll->setFrameShape(QFrame::NoFrame);
+  navScroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  auto* navContent = new QWidget;
+  navContent->setObjectName("navContent");
+  auto* navLayout = new QVBoxLayout(navContent);
+  navLayout->setContentsMargins(0, 0, 0, 16);
+  navLayout->setSpacing(2);
+  navLayout->setSizeConstraint(QLayout::SetMinimumSize);
+  navScroll->setWidget(navContent);
+  side->addWidget(navScroll, 1);
+
   auto addSection = [&](const QString& label) {
     auto* sec = new QLabel(label);
     sec->setObjectName("navSection");
-    side->addWidget(sec);
+    navLayout->addWidget(sec);
   };
 
   m_pages = new QStackedWidget;
@@ -758,7 +790,7 @@ MainWindow::MainWindow(DatabaseManager& db, std::shared_ptr<User> u, QWidget* p)
     b->setIconSize(QSize(20, 20));
     b->setMinimumHeight(44);
     b->setCursor(Qt::PointingHandCursor);
-    side->addWidget(b);
+    navLayout->addWidget(b);
     m_navButtons.append(b);
     addPage(title, page);
 
@@ -802,7 +834,7 @@ MainWindow::MainWindow(DatabaseManager& db, std::shared_ptr<User> u, QWidget* p)
   addNav("Updates", "profile", updatesPage());
   addNav("Settings", "settings", settingsPage());
 
-  side->addStretch();
+  navLayout->addStretch();
 
   auto* logout = new QPushButton("Sign Out");
   logout->setObjectName("navButton");
@@ -812,7 +844,7 @@ MainWindow::MainWindow(DatabaseManager& db, std::shared_ptr<User> u, QWidget* p)
   logout->setCursor(Qt::PointingHandCursor);
   logout->setProperty("fullLabel", "Sign Out");
   logout->setToolTip("Sign Out");
-  side->addWidget(logout);
+  navLayout->addWidget(logout);
   connect(logout, &QPushButton::clicked, this, [this] { emit logoutRequested(); });
 
   connect(collapseNav, &QPushButton::clicked, this,
@@ -1046,6 +1078,10 @@ void MainWindow::applyTheme(const QString& theme) {
       "QMainWindow { background: #0b0f19; }"
       "QWidget { font-family: 'Segoe UI'; font-size: 13px; color: #f1f5f9; }"
       "QFrame#sidebar { background: #080d18; border-right: 1px solid #1e293b; }"
+      "QScrollArea#navScroll, QWidget#navContent { background: transparent; border: 0; }"
+      "QScrollArea#navScroll QScrollBar:vertical { background: #080d18; width: 7px; border: 0; }"
+      "QScrollArea#navScroll QScrollBar::handle:vertical { background: #334155; border-radius: 3px; min-height: 24px; }"
+      "QScrollArea#navScroll QScrollBar::add-line:vertical, QScrollArea#navScroll QScrollBar::sub-line:vertical { height: 0; }"
       "QFrame#brandHeader { background: transparent; border-bottom: 1px solid #1e293b; }"
       "QLabel#brandIcon { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f46e5, stop:1 #7c3aed); border-radius: 12px; }"
       "QLabel#brandTitle { color: #f8fafc; font-size: 18px; font-weight: 700; }"
@@ -1102,11 +1138,16 @@ void MainWindow::applyTheme(const QString& theme) {
       "QPushButton#slotBtn[slotState='available']:hover { background: #1e293b; border-color: #818cf8; color: #a5b4fc; }"
       "QPushButton#slotBtn:disabled { background: #080d18; color: #64748b; border: 1px dashed #1e293b; border-radius: 10px; font-weight: 500; padding: 8px; font-size: 12px; }"
     );
+    setStyleSheet(styleSheet() + inputArrowStyle(true));
   } else {
     setStyleSheet(
       "QMainWindow { background: #f8fafc; }"
       "QWidget { font-family: 'Segoe UI'; font-size: 13px; color: #0f172a; }"
       "QFrame#sidebar { background: #0f172a; border-right: 1px solid #e2e8f0; }"
+      "QScrollArea#navScroll, QWidget#navContent { background: transparent; border: 0; }"
+      "QScrollArea#navScroll QScrollBar:vertical { background: #0f172a; width: 7px; border: 0; }"
+      "QScrollArea#navScroll QScrollBar::handle:vertical { background: #475569; border-radius: 3px; min-height: 24px; }"
+      "QScrollArea#navScroll QScrollBar::add-line:vertical, QScrollArea#navScroll QScrollBar::sub-line:vertical { height: 0; }"
       "QFrame#brandHeader { background: transparent; border-bottom: 1px solid #1e293b; }"
       "QLabel#brandIcon { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f46e5, stop:1 #7c3aed); border-radius: 12px; }"
       "QLabel#brandTitle { color: #f8fafc; font-size: 18px; font-weight: 700; }"
@@ -1163,6 +1204,7 @@ void MainWindow::applyTheme(const QString& theme) {
       "QPushButton#slotBtn[slotState='available']:hover { background: #f8fafc; border-color: #6366f1; color: #4f46e5; }"
       "QPushButton#slotBtn:disabled { background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; border-radius: 10px; font-weight: 500; padding: 8px; font-size: 12px; }"
     );
+    setStyleSheet(styleSheet() + inputArrowStyle(false));
   }
 
   QPalette pal = palette();
@@ -3217,26 +3259,9 @@ void MainWindow::editLaboratoryDialog(qint64 id) {
   auto* location = new QLineEdit(original ? original->location : "");
   auto* dept = new QLineEdit(original ? original->department : "");
   auto* cap = new QSpinBox; cap->setRange(1, 10000); cap->setValue(original ? original->capacity : 25);
-  cap->setButtonSymbols(QAbstractSpinBox::NoButtons);
   auto* desc = new QLineEdit(original ? original->description : "");
   auto* status = new QComboBox; status->addItems({"Available", "Unavailable", "Under Maintenance"});
   if (original) status->setCurrentText(toString(original->status));
-  status->setStyleSheet("QComboBox::drop-down { width:0px; border:0; }");
-  auto* statusControl = new QWidget;
-  statusControl->setFocusProxy(status);
-  auto* statusRow = new QHBoxLayout(statusControl);
-  statusRow->setContentsMargins(0, 0, 0, 0);
-  statusRow->setSpacing(8);
-  status->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-  auto* statusMenu = new QPushButton("⌄");
-  statusMenu->setObjectName("facilityStatusMenu");
-  statusMenu->setFixedSize(44, 44);
-  statusMenu->setToolTip("Choose operating status");
-  statusMenu->setAccessibleName("Choose operating status");
-  statusMenu->setCursor(Qt::PointingHandCursor);
-  statusRow->addWidget(status, 1);
-  statusRow->addWidget(statusMenu);
-  connect(statusMenu, &QPushButton::clicked, status, &QComboBox::showPopup);
   auto* save = createButton(original ? "Save Changes" : "Create Facility");
   save->setObjectName("facilitySaveButton");
   save->setDefault(true);
@@ -3264,7 +3289,7 @@ void MainWindow::editLaboratoryDialog(qint64 id) {
   addField(1, 0, "Location / building", location);
   addField(1, 1, "Department", dept);
   addField(2, 0, "Seating capacity", cap);
-  addField(2, 1, "Operating status", statusControl);
+  addField(2, 1, "Operating status", status);
   addField(3, 0, "Description", desc, 2);
   layout->addWidget(body);
 
@@ -3291,7 +3316,6 @@ void MainWindow::editLaboratoryDialog(qint64 id) {
       "QLabel#facilityDialogSubtitle { color:#94a3b8; font-size:12px; }"
       "QLabel#facilityFieldLabel { color:#cbd5e1; font-size:12px; font-weight:700; }"
       "QLineEdit,QComboBox,QSpinBox { background:#1e293b; color:#f8fafc; border:1px solid #475569; border-radius:9px; padding:8px 12px; font-size:13px; }"
-      "QPushButton#facilityStatusMenu { background:#4f46e5; color:white; border:0; border-radius:9px; padding:0; font-size:20px; font-weight:700; }"
       "QLineEdit:focus,QComboBox:focus,QSpinBox:focus { border:2px solid #818cf8; }"
       "QPushButton#facilitySaveButton { background:#4f46e5; color:white; border:0; border-radius:9px; padding:11px 22px; font-weight:700; }"
       "QPushButton#facilityCancelButton { background:#263449; color:#e2e8f0; border:1px solid #475569; border-radius:9px; padding:10px 20px; font-weight:600; }"
@@ -3302,10 +3326,10 @@ void MainWindow::editLaboratoryDialog(qint64 id) {
       "QLabel#facilityDialogSubtitle { color:#64748b; font-size:12px; }"
       "QLabel#facilityFieldLabel { color:#334155; font-size:12px; font-weight:700; }"
       "QLineEdit,QComboBox,QSpinBox { background:#ffffff; color:#0f172a; border:1px solid #cbd5e1; border-radius:9px; padding:8px 12px; font-size:13px; }"
-      "QPushButton#facilityStatusMenu { background:#4f46e5; color:white; border:0; border-radius:9px; padding:0; font-size:20px; font-weight:700; }"
       "QLineEdit:focus,QComboBox:focus,QSpinBox:focus { border:2px solid #6366f1; }"
       "QPushButton#facilitySaveButton { background:#4f46e5; color:white; border:0; border-radius:9px; padding:11px 22px; font-weight:700; }"
       "QPushButton#facilityCancelButton { background:#f8fafc; color:#334155; border:1px solid #cbd5e1; border-radius:9px; padding:10px 20px; font-weight:600; }");
+  dialog.setStyleSheet(dialog.styleSheet() + inputArrowStyle(dark));
   mark->setStyleSheet("background:#4f46e5; border-radius:11px;");
 
   connect(save, &QPushButton::clicked, &dialog, [&, original] {
@@ -3352,6 +3376,7 @@ void MainWindow::editUserDialog(qint64 id) {
   auto* dept = new QLineEdit(original ? original->department : "");
   auto* contact = new QLineEdit(original ? original->contact : "");
   auto* role = new QComboBox; role->addItems({"Student", "Lecturer", "Administrator"});
+  role->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   if (original) role->setCurrentText(toString(original->role));
   auto* pw = new QLineEdit; pw->setEchoMode(QLineEdit::Password); pw->setPlaceholderText("Temporary password (8+ chars)");
   auto* save = createButton(original ? "Save Changes" : "Create User");
@@ -3412,12 +3437,14 @@ void MainWindow::editEquipmentDialog(qint64 id) {
   styleFormDialog(dialog, *form);
 
   auto* lab = new QComboBox;
+  lab->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   for (const auto& l : labs) lab->addItem(QString("%1 [%2]").arg(l.name, l.number), l.id);
   auto* name = new QLineEdit(original ? original->name : "");
   auto* qty = new QSpinBox; qty->setRange(0, 100000); qty->setValue(original ? original->totalQty : 1);
   auto* avail = new QSpinBox; avail->setRange(0, 100000); avail->setValue(original ? original->availableQty : 1);
   auto* cond = new QLineEdit(original ? original->condition : "Good");
   auto* status = new QComboBox; status->addItems({"Available", "Unavailable", "Maintenance"});
+  status->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   auto* notes = new QLineEdit(original ? original->notes : "");
   auto* save = createButton(original ? "Save Changes" : "Register Equipment");
 
