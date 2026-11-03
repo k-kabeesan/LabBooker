@@ -29,6 +29,25 @@ private slots:
     QVERIFY(AuthService(*m_db).changePassword(valid->id(),"temporary-password","new-password").ok);
     QVERIFY(AuthService(*m_db).authenticate("STU1","new-password"));
   }
+  void administratorResetsForgottenPassword(){
+    auto student=createStudent();
+    AuthService auth(*m_db);
+    QVERIFY(!auth.resetPasswordByAdmin(*student,student->id(),"temporary-reset").ok);
+    QVERIFY(!auth.resetPasswordByAdmin(*m_admin,m_admin->id(),"temporary-reset").ok);
+    QVERIFY(!auth.resetPasswordByAdmin(*m_admin,student->id(),"short").ok);
+    const auto result=auth.resetPasswordByAdmin(*m_admin,student->id(),"temporary-reset");
+    QVERIFY2(result.ok,qPrintable(result.error));
+    const auto record=m_db->userById(student->id());QVERIFY(record);QVERIFY(record->mustChange);
+    QVERIFY(auth.authenticate(record->eid,"temporary-reset"));
+    QVERIFY(auth.changePassword(student->id(),"temporary-reset","permanent-password").ok);
+    QVERIFY(!m_db->userById(student->id())->mustChange);
+    QVERIFY(!auth.authenticate(record->eid,"temporary-reset"));
+    QVERIFY(auth.authenticate(record->eid,"permanent-password"));
+    QSqlQuery audit(m_db->db());
+    audit.prepare("SELECT COUNT(*) FROM audit_log WHERE user_id=? AND action='PasswordReset' AND entity_id=?");
+    audit.addBindValue(m_admin->id());audit.addBindValue(student->id());
+    QVERIFY(audit.exec());QVERIFY(audit.next());QCOMPARE(audit.value(0).toInt(),1);
+  }
   void accountRegistrationRequiresAdministratorApproval(){
     UserRecord request;request.eid="NEWSTU";request.name="New Student";request.email="new.student@example.edu";request.role=UserRole::Student;
     const auto submitted=AuthService(*m_db).registerAccount(request,"student-password");QVERIFY2(submitted.ok,qPrintable(submitted.error));

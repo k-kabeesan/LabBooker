@@ -99,6 +99,17 @@ private slots:
     edit->click();
     auto* pages = window.findChild<QStackedWidget*>();
     QVERIFY(pages);
+    auto* purpose = pages->currentWidget()->findChild<QComboBox*>("bookingPurposeCombo");
+    auto* customPurpose = pages->currentWidget()->findChild<QLineEdit*>("customBookingPurpose");
+    QVERIFY(purpose && customPurpose);
+    QCOMPARE(purpose->count(), 7);
+    QCOMPARE(purpose->currentText(), QString("Other"));
+    QCOMPARE(customPurpose->text(), QString("Practical"));
+    QVERIFY(!customPurpose->isHidden());
+    purpose->setCurrentText("Research Work");
+    QVERIFY(customPurpose->isHidden());
+    purpose->setCurrentText("Other");
+    QVERIFY(!customPurpose->isHidden());
     QCheckBox* microscope = nullptr;
     for (auto* check : pages->currentWidget()->findChildren<QCheckBox*>())
       if (check->text().contains("Microscope")) microscope = check;
@@ -108,6 +119,8 @@ private slots:
     for (auto* button : pages->currentWidget()->findChildren<QPushButton*>()) if (button->text() == "Reset Form") reset = button;
     QVERIFY(reset);
     reset->click();
+    QCOMPARE(purpose->currentIndex(), 0);
+    QVERIFY(customPurpose->isHidden());
     for (auto* check : pages->currentWidget()->findChildren<QCheckBox*>())
       if (check->text().contains("Microscope")) QVERIFY(!check->isChecked());
   }
@@ -177,6 +190,8 @@ private slots:
       auto* buttons = dialog->findChild<QDialogButtonBox*>();
       QVERIFY(calendar && buttons);
       calendar->setSelectedDate(chosenDate);
+      if (const QString screenshot = qEnvironmentVariable("LABBOOK_CALENDAR_SCREENSHOT"); !screenshot.isEmpty())
+        dialog->grab().save(screenshot);
       buttons->button(QDialogButtonBox::Ok)->click();
     });
     calendarButton->click();
@@ -204,6 +219,23 @@ private slots:
       auto* title = adminWindow.findChild<QLabel*>("pageTitle");
       QVERIFY(title);
       QCOMPARE(title->text(), page);
+    }
+    for (const QString& page : {"All Bookings", "Approvals"}) {
+      adminWindow.navigateToPage(page);
+      auto* currentPage = adminWindow.findChild<QStackedWidget*>()->currentWidget();
+      const QString prefix = page == "All Bookings" ? "adminBookings" : "approvals";
+      auto* from = currentPage->findChild<QDateEdit*>(prefix + "From");
+      auto* to = currentPage->findChild<QDateEdit*>(prefix + "To");
+      auto* table = currentPage->findChild<QTableWidget*>(prefix + "Table");
+      QVERIFY(from && to && table);
+      QCOMPARE(from->date(), QDate::currentDate());
+      QCOMPARE(to->date(), QDate::currentDate());
+      QCOMPARE(from->displayFormat(), QString("dd/MM/yyyy"));
+      QVERIFY(table->rowCount() > 0);
+      QVERIFY(table->isRowHidden(0));
+      to->setDate(request.date);
+      QApplication::processEvents();
+      QVERIFY(!table->isRowHidden(0));
     }
     adminWindow.resize(900, 560);
     adminWindow.show();

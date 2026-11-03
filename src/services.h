@@ -14,6 +14,7 @@ public:
   ServiceResult registerAccount(const UserRecord&,const QString&password);
   std::shared_ptr<User> authenticate(const QString& eid,const QString&password,QString*error=nullptr) const;
   ServiceResult changePassword(qint64 id,const QString&oldPassword,const QString&newPassword);
+  ServiceResult resetPasswordByAdmin(const User&actor,qint64 userId,const QString&temporaryPassword);
 private:
   DatabaseManager&m_db;
   static QString salt();

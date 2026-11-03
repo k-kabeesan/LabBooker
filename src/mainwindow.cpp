@@ -258,13 +258,31 @@ QWidget* calendarDateControl(QDateEdit* dateEdit) {
 
   QObject::connect(openCalendar, &QPushButton::clicked, dateEdit, [dateEdit] {
     QDialog dialog(dateEdit);
+    dialog.setObjectName("bookingDateDialog");
     dialog.setWindowTitle("Choose a booking date");
-    dialog.setMinimumWidth(360);
+    dialog.setMinimumWidth(440);
+    dialog.setStyleSheet(
+      "QDialog#bookingDateDialog { background:#ffffff; color:#0f172a; font-family:'Segoe UI'; }"
+      "QDialog#bookingDateDialog QLabel { color:#334155; font-size:13px; }"
+      "QCalendarWidget { background:#ffffff; border:1px solid #dbe4ef; border-radius:12px; }"
+      "QCalendarWidget QWidget#qt_calendar_navigationbar { background:#f1f5f9; border:0; }"
+      "QCalendarWidget QToolButton { color:#0f172a; background:transparent; border:0;"
+      "  padding:8px; font-weight:700; font-size:13px; }"
+      "QCalendarWidget QToolButton:hover { background:#e2e8f0; border-radius:6px; }"
+      "QCalendarWidget QMenu { background:#ffffff; color:#0f172a; }"
+      "QCalendarWidget QSpinBox { color:#0f172a; background:#ffffff; selection-background-color:#4f46e5; }"
+      "QCalendarWidget QTableView { background:#ffffff; color:#0f172a; border:0;"
+      "  selection-background-color:#4f46e5; selection-color:#ffffff; outline:0; }"
+      "QDialog#bookingDateDialog QDialogButtonBox QPushButton { background:#4f46e5; color:white;"
+      "  border:0; border-radius:8px; padding:10px 16px; font-weight:600; min-width:90px; }"
+      "QDialog#bookingDateDialog QDialogButtonBox QPushButton:hover { background:#4338ca; }"
+      "QDialog#bookingDateDialog QDialogButtonBox QPushButton:disabled { background:#cbd5e1; }"
+    );
     auto* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(20, 20, 20, 20);
-    layout->setSpacing(14);
+    layout->setContentsMargins(24, 24, 24, 24);
+    layout->setSpacing(16);
     auto* heading = new QLabel("Choose a booking date");
-    heading->setStyleSheet("font-size: 17px; font-weight: 700;");
+    heading->setStyleSheet("font-size: 20px; font-weight: 700; color:#0f172a;");
     auto* hint = new QLabel("Laboratories are open Monday to Friday. Past dates are unavailable.");
     hint->setWordWrap(true);
     layout->addWidget(heading);
@@ -275,6 +293,8 @@ QWidget* calendarDateControl(QDateEdit* dateEdit) {
     calendar->setSelectedDate(dateEdit->date());
     calendar->setGridVisible(false);
     calendar->setFirstDayOfWeek(Qt::Monday);
+    calendar->setVerticalHeaderFormat(QCalendarWidget::NoVerticalHeader);
+    calendar->setMinimumHeight(310);
     QTextCharFormat weekend;
     weekend.setForeground(QColor("#94a3b8"));
     calendar->setWeekdayTextFormat(Qt::Saturday, weekend);
@@ -1959,8 +1979,19 @@ QWidget* MainWindow::bookings() {
   m_bookingEndEdit = new QTimeEdit(QTime(10, 30));
   m_bookingEndEdit->setVisible(false);
 
+  auto* purposeCombo = new QComboBox;
+  purposeCombo->setObjectName("bookingPurposeCombo");
+  purposeCombo->addItems({"Select a booking purpose...", "Practical Session", "Research Work",
+                          "Academic Experiments", "Project Work", "Sample Preparation", "Other"});
   auto* purposeEdit = new QLineEdit;
-  purposeEdit->setPlaceholderText("Describe the academic or research purpose");
+  purposeEdit->setObjectName("customBookingPurpose");
+  purposeEdit->setPlaceholderText("Enter your booking purpose...");
+  purposeEdit->setVisible(false);
+  connect(purposeCombo, &QComboBox::currentIndexChanged, this, [purposeCombo, purposeEdit](int) {
+    const bool other = purposeCombo->currentText() == "Other";
+    purposeEdit->setVisible(other);
+    if (!other) purposeEdit->clear();
+  });
   auto* purposeError = new QLabel;
   purposeError->setStyleSheet("color: #b91c1c; font-weight: 600;");
   purposeError->setVisible(false);
@@ -1970,7 +2001,8 @@ QWidget* MainWindow::bookings() {
   grid->addWidget(new QLabel("Booking Date (Monday to Friday)"), 0, 1);
   grid->addWidget(calendarDateControl(m_bookingDateEdit), 1, 1);
   grid->addWidget(new QLabel("Booking Purpose"), 2, 0, 1, 2);
-  grid->addWidget(purposeEdit, 3, 0, 1, 2);
+  grid->addWidget(purposeCombo, 3, 0, 1, 2);
+  grid->addWidget(purposeEdit, 4, 0, 1, 2);
   fl->addLayout(grid);
   fl->addWidget(purposeError);
 
@@ -2234,7 +2266,7 @@ QWidget* MainWindow::bookings() {
 
   connect(refreshBtn, &QPushButton::clicked, this, [this] { refreshCurrentPage(); });
 
-  connect(submitBtn, &QPushButton::clicked, this, [this, purposeEdit, purposeError, eqRows, editingId, submitBtn, formTitle, updateBookingSlotsUI] {
+  connect(submitBtn, &QPushButton::clicked, this, [this, purposeCombo, purposeEdit, purposeError, eqRows, editingId, submitBtn, formTitle, updateBookingSlotsUI] {
     purposeError->setVisible(false);
     if (!m_bookingLabCombo || m_bookingLabCombo->currentIndex() < 0 || m_bookingLabCombo->currentData().toLongLong() <= 0) {
       QMessageBox::warning(this, "Booking Error", "Please select a valid active laboratory.");
@@ -2252,10 +2284,11 @@ QWidget* MainWindow::bookings() {
       QMessageBox::warning(this, "Booking Error", "Please select one of the four fixed time slots (exactly 2 hours).");
       return;
     }
-    if (purposeEdit->text().trimmed().isEmpty()) {
-      purposeError->setText("Enter the academic or research purpose.");
+    const bool otherPurpose = purposeCombo->currentText() == "Other";
+    if (purposeCombo->currentIndex() == 0 || (otherPurpose && purposeEdit->text().trimmed().isEmpty())) {
+      purposeError->setText(otherPurpose ? "Enter your booking purpose." : "Select a booking purpose.");
       purposeError->setVisible(true);
-      purposeEdit->setFocus();
+      (otherPurpose ? static_cast<QWidget*>(purposeEdit) : static_cast<QWidget*>(purposeCombo))->setFocus();
       return;
     }
 
@@ -2264,7 +2297,7 @@ QWidget* MainWindow::bookings() {
     r.date = date;
     r.start = slotOpt->start;
     r.end = slotOpt->end;
-    r.purpose = purposeEdit->text().trimmed();
+    r.purpose = otherPurpose ? purposeEdit->text().trimmed() : purposeCombo->currentText();
 
     for (const auto& row : *eqRows) {
       if (row.check->isChecked()) {
@@ -2295,6 +2328,7 @@ QWidget* MainWindow::bookings() {
     *editingId = 0;
     submitBtn->setText("Submit Reservation");
     formTitle->setText("Reserve a Laboratory");
+    purposeCombo->setCurrentIndex(0);
     purposeEdit->clear();
     if (m_refreshEquipmentFn) m_refreshEquipmentFn();
     refreshDashboard();
@@ -2307,7 +2341,7 @@ QWidget* MainWindow::bookings() {
     }
   });
 
-  connect(editBtn, &QPushButton::clicked, this, [this, table, purposeEdit, eqRows, editingId, submitBtn, formTitle, updateBookingSlotsUI] {
+  connect(editBtn, &QPushButton::clicked, this, [this, table, purposeCombo, purposeEdit, eqRows, editingId, submitBtn, formTitle, updateBookingSlotsUI] {
     if (table->currentRow() < 0) return;
     const qint64 id = table->item(table->currentRow(), 0)->data(Qt::UserRole).toLongLong();
     const auto b = m_db.bookingById(id);
@@ -2327,7 +2361,9 @@ QWidget* MainWindow::bookings() {
       m_selectedSlotId = slotOpt->id;
     }
     updateBookingSlotsUI();
-    purposeEdit->setText(b->purpose);
+    const int purposeIndex = purposeCombo->findText(b->purpose);
+    purposeCombo->setCurrentIndex(purposeIndex > 0 ? purposeIndex : purposeCombo->findText("Other"));
+    if (purposeIndex <= 0) purposeEdit->setText(b->purpose);
     submitBtn->setText("Save Changes");
     formTitle->setText(QString("Edit Reservation: %1").arg(b->reference));
     navigateToPage("New Booking");
@@ -2353,10 +2389,11 @@ QWidget* MainWindow::bookings() {
     updateBookingSlotsUI();
   });
 
-  connect(clearBtn, &QPushButton::clicked, this, [this, editingId, submitBtn, formTitle, purposeEdit, purposeError, updateBookingSlotsUI] {
+  connect(clearBtn, &QPushButton::clicked, this, [this, editingId, submitBtn, formTitle, purposeCombo, purposeEdit, purposeError, updateBookingSlotsUI] {
     *editingId = 0;
     submitBtn->setText("Submit Reservation");
     formTitle->setText("Reserve a Laboratory");
+    purposeCombo->setCurrentIndex(0);
     purposeEdit->clear();
     purposeError->setVisible(false);
     if (m_bookingLabCombo && m_bookingLabCombo->count()) m_bookingLabCombo->setCurrentIndex(0);
@@ -2398,11 +2435,13 @@ QWidget* MainWindow::approvals() {
   auto* departmentFilter = new QLineEdit;
   departmentFilter->setObjectName("approvalsDepartment");
   departmentFilter->setPlaceholderText("Filter department");
-  auto* fromFilter = new QDateEdit(QDate(2000, 1, 1));
+  auto* fromFilter = new QDateEdit(QDate::currentDate());
   fromFilter->setObjectName("approvalsFrom");
+  fromFilter->setDisplayFormat("dd/MM/yyyy");
   fromFilter->setCalendarPopup(true);
-  auto* toFilter = new QDateEdit(QDate(2100, 12, 31));
+  auto* toFilter = new QDateEdit(QDate::currentDate());
   toFilter->setObjectName("approvalsTo");
+  toFilter->setDisplayFormat("dd/MM/yyyy");
   toFilter->setCalendarPopup(true);
   filters->addWidget(labFilter, 1);
   filters->addWidget(departmentFilter, 1);
@@ -2491,11 +2530,13 @@ QWidget* MainWindow::adminBookings() {
   auto* departmentFilter = new QLineEdit;
   departmentFilter->setObjectName("adminBookingsDepartment");
   departmentFilter->setPlaceholderText("Filter department");
-  auto* fromFilter = new QDateEdit(QDate(2000, 1, 1));
+  auto* fromFilter = new QDateEdit(QDate::currentDate());
   fromFilter->setObjectName("adminBookingsFrom");
+  fromFilter->setDisplayFormat("dd/MM/yyyy");
   fromFilter->setCalendarPopup(true);
-  auto* toFilter = new QDateEdit(QDate(2100, 12, 31));
+  auto* toFilter = new QDateEdit(QDate::currentDate());
   toFilter->setObjectName("adminBookingsTo");
+  toFilter->setDisplayFormat("dd/MM/yyyy");
   toFilter->setCalendarPopup(true);
   filters->addWidget(statusFilter);
   filters->addWidget(labFilter);
@@ -2717,12 +2758,14 @@ QWidget* MainWindow::usersPage() {
   search->setPlaceholderText("Search by E-ID, full name, or email...");
   auto* addBtn = createButton("Add User", "primary");
   auto* editBtn = createButton("Edit Selected", "secondary");
+  auto* resetPassword = createButton("Reset Password", "secondary");
   auto* approveBtn = createButton("Approve Account", "success");
   auto* toggleActive = createButton("Toggle Active", "secondary");
 
   bar->addWidget(search, 1);
   bar->addWidget(addBtn);
   bar->addWidget(editBtn);
+  bar->addWidget(resetPassword);
   bar->addWidget(approveBtn);
   bar->addWidget(toggleActive);
   l->addLayout(bar);
@@ -2736,12 +2779,65 @@ QWidget* MainWindow::usersPage() {
   t->setSelectionMode(QAbstractItemView::SingleSelection);
   t->setEditTriggers(QAbstractItemView::NoEditTriggers);
   l->addWidget(t, 1);
+  resetPassword->setEnabled(false);
+
+  connect(t, &QTableWidget::itemSelectionChanged, this, [this, t, resetPassword] {
+    const auto* item = t->currentRow() >= 0 ? t->item(t->currentRow(), 0) : nullptr;
+    resetPassword->setEnabled(item && item->data(Qt::UserRole).toLongLong() != m_user->id());
+  });
 
   connect(search, &QLineEdit::textChanged, this, [this] { refreshCurrentPage(); });
   connect(addBtn, &QPushButton::clicked, this, [this] { addUserDialog(); });
   connect(editBtn, &QPushButton::clicked, this, [this, t] {
     if (t->currentRow() < 0) return;
     editUserDialog(t->item(t->currentRow(), 0)->data(Qt::UserRole).toLongLong());
+  });
+  connect(resetPassword, &QPushButton::clicked, this, [this, t] {
+    if (t->currentRow() < 0) return;
+    const qint64 id = t->item(t->currentRow(), 0)->data(Qt::UserRole).toLongLong();
+    const auto user = m_db.userById(id);
+    if (!user || id == m_user->id()) return;
+
+    QDialog dialog(this);
+    dialog.setObjectName("resetPasswordDialog");
+    dialog.setWindowTitle("Reset Password");
+    auto* form = new QFormLayout(&dialog);
+    styleFormDialog(dialog, *form);
+    auto* guidance = new QLabel(QString("Set a temporary password for %1 (%2). They must change it at their next sign-in.")
+                                 .arg(user->name, user->eid));
+    guidance->setWordWrap(true);
+    form->addRow(guidance);
+    auto* temporary = new QLineEdit;
+    temporary->setObjectName("temporaryPassword");
+    temporary->setEchoMode(QLineEdit::Password);
+    auto* confirm = new QLineEdit;
+    confirm->setObjectName("confirmTemporaryPassword");
+    confirm->setEchoMode(QLineEdit::Password);
+    form->addRow("Temporary password (8+ characters)", temporary);
+    form->addRow("Confirm temporary password", confirm);
+    auto* actions = new QHBoxLayout;
+    auto* cancel = createButton("Cancel", "secondary");
+    auto* save = createButton("Reset Password", "primary");
+    save->setObjectName("resetPasswordConfirm");
+    actions->addStretch();
+    actions->addWidget(cancel);
+    actions->addWidget(save);
+    form->addRow(actions);
+    connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(save, &QPushButton::clicked, &dialog, [this, id, temporary, confirm, &dialog] {
+      if (temporary->text() != confirm->text()) {
+        QMessageBox::warning(&dialog, "Password Match", "The temporary passwords do not match.");
+        return;
+      }
+      const auto result = AuthService(m_db).resetPasswordByAdmin(*m_user, id, temporary->text());
+      if (!result.ok) {
+        QMessageBox::warning(&dialog, "Reset Failed", result.error);
+        return;
+      }
+      dialog.accept();
+    });
+    if (dialog.exec() == QDialog::Accepted)
+      QMessageBox::information(this, "Password Reset", "The temporary password is active. Share it privately with the user; they must change it at their next sign-in.");
   });
   connect(approveBtn, &QPushButton::clicked, this, [this, t] {
     if (t->currentRow() < 0) return;

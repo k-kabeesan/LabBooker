@@ -6,6 +6,7 @@
 #include <QTextDocument>
 #include <QRegularExpression>
 #include <QSqlQuery>
+#include <QSqlError>
 #include <QUuid>
 #include <algorithm>
 
@@ -184,6 +185,27 @@ ServiceResult AuthService::changePassword(qint64 id,const QString&oldPassword,co
     return ServiceResult::failure("Current password is incorrect.");
   const auto saltValue=salt();
   return m_db.setPassword(id,derive(newPassword,saltValue,210000),saltValue,210000,false);
+}
+
+ServiceResult AuthService::resetPasswordByAdmin(const User&actor,qint64 userId,const QString&temporaryPassword){
+  if(!hasPermission(actor,Permission::ManageUsers))return ServiceResult::failure("Only an administrator can reset user passwords.");
+  if(actor.id()==userId)return ServiceResult::failure("Use Account Security to change your own password.");
+  if(!m_db.userById(userId))return ServiceResult::failure("User was not found.");
+  if(temporaryPassword.size()<8)return ServiceResult::failure("Temporary password must be at least 8 characters.");
+  const auto saltValue=salt();
+  return m_db.transaction([&]{
+    const auto result=m_db.setPassword(userId,derive(temporaryPassword,saltValue,210000),saltValue,210000,true);
+    if(!result.ok)return result;
+    QSqlQuery audit(m_db.db());
+    audit.prepare("INSERT INTO audit_log(user_id,action,entity_type,entity_id,timestamp,description) VALUES(?,?,?,?,?,?)");
+    audit.addBindValue(actor.id());
+    audit.addBindValue("PasswordReset");
+    audit.addBindValue("User");
+    audit.addBindValue(userId);
+    audit.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+    audit.addBindValue("Administrator issued a temporary password.");
+    return audit.exec()?ServiceResult::success():ServiceResult::failure(audit.lastError().text());
+  });
 }
 
 ServiceResult UserManager::add(const User&actor,const UserRecord&record,const QString&temporaryPassword){
