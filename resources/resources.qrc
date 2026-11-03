@@ -4,6 +4,7 @@
   </qresource>
   <qresource prefix="/brand">
     <file alias="labbooker.png">images/labbooker-logo.png</file>
+    <file alias="calendar-flask-logo.png">images/calendar-flask-logo.png</file>
     <file alias="login-background.png">images/login-background.png</file>
   </qresource>
   <qresource prefix="/controls">

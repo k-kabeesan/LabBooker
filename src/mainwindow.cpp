@@ -159,23 +159,9 @@ QIcon navigationIcon(const QString& name, const QColor& color) {
 }
 
 QPixmap flaskMark() {
-  QPixmap icon(34, 34);
-  icon.fill(Qt::transparent);
-  QPainter p(&icon);
-  p.setRenderHint(QPainter::Antialiasing);
-  p.setPen(QPen(Qt::white, 2.5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  p.setBrush(Qt::NoBrush);
-  QPainterPath shape;
-  shape.moveTo(11, 4); shape.lineTo(23, 4);
-  shape.lineTo(21, 8); shape.lineTo(21, 13);
-  shape.lineTo(28, 26); shape.quadTo(29, 29, 25, 29);
-  shape.lineTo(9, 29); shape.quadTo(5, 29, 6, 26);
-  shape.lineTo(13, 13); shape.lineTo(13, 8);
-  shape.closeSubpath();
-  p.drawPath(shape);
-  p.drawLine(10, 22, 24, 22);
-  p.end();
-  return icon;
+  const QPixmap logo(":/brand/calendar-flask-logo.png");
+  return logo.copy(475, 150, 610, 510)
+             .scaled(QSize(40, 40), Qt::KeepAspectRatio, Qt::SmoothTransformation);
 }
 
 QWidget* createStatusBadgeWidget(const QString& text, const QString& type) {
@@ -375,15 +361,15 @@ LoginWindow::LoginWindow(DatabaseManager& db, QWidget* parent)
   content->setContentsMargins(36, 32, 36, 32);
   content->setSpacing(0);
 
-  // 1. Centered Logo
-  auto* logoLabel = new QLabel;
-  logoLabel->setObjectName("loginLogo");
-  logoLabel->setAlignment(Qt::AlignCenter);
-  QPixmap rawLogo(":/brand/labbooker.png");
-  if (!rawLogo.isNull()) {
-    logoLabel->setPixmap(rawLogo.scaledToWidth(210, Qt::SmoothTransformation));
+  auto* loginLogo = new QLabel;
+  loginLogo->setObjectName("loginLogo");
+  loginLogo->setAlignment(Qt::AlignCenter);
+  const QPixmap suppliedLogo(":/brand/calendar-flask-logo.png");
+  if (!suppliedLogo.isNull()) {
+    loginLogo->setPixmap(suppliedLogo.copy(150, 150, 1230, 740)
+                              .scaledToWidth(230, Qt::SmoothTransformation));
   }
-  content->addWidget(logoLabel);
+  content->addWidget(loginLogo);
   content->addSpacing(14);
 
   // 2. Heading
@@ -1083,7 +1069,7 @@ void MainWindow::applyTheme(const QString& theme) {
       "QScrollArea#navScroll QScrollBar::handle:vertical { background: #334155; border-radius: 3px; min-height: 24px; }"
       "QScrollArea#navScroll QScrollBar::add-line:vertical, QScrollArea#navScroll QScrollBar::sub-line:vertical { height: 0; }"
       "QFrame#brandHeader { background: transparent; border-bottom: 1px solid #1e293b; }"
-      "QLabel#brandIcon { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f46e5, stop:1 #7c3aed); border-radius: 12px; }"
+      "QLabel#brandIcon { background: transparent; border: 0; }"
       "QLabel#brandTitle { color: #f8fafc; font-size: 18px; font-weight: 700; }"
       "QLabel#brandSubtitle { color: #64748b; font-size: 12px; }"
       "QLabel#navSection { color: #475569; font-size: 11px; font-weight: 700; letter-spacing: 1px; padding: 16px 20px 4px; }"
@@ -1099,6 +1085,16 @@ void MainWindow::applyTheme(const QString& theme) {
       "QLabel#topProfileRole { color: #94a3b8; font-size: 11px; }"
       "QStackedWidget { background: #0b0f19; }"
       "QFrame#card, QFrame#formCard, QFrame#settingsCard, QFrame#statCard { background: #111827; border: 1px solid #1e293b; border-radius: 14px; }"
+      "QFrame#settingsHero { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3730a3, stop:1 #5b21b6); border-radius: 16px; }"
+      "QLabel#settingsEyebrow { color: #c7d2fe; font-size: 10px; font-weight: 700; letter-spacing: 1px; }"
+      "QLabel#settingsHeroTitle { color: #ffffff; font-size: 23px; font-weight: 700; }"
+      "QLabel#settingsHeroLead { color: #e0e7ff; font-size: 12px; }"
+      "QLabel#settingsCardTitle { color: #f8fafc; font-size: 17px; font-weight: 700; }"
+      "QLabel#settingsCardHint { color: #94a3b8; font-size: 12px; }"
+      "QLabel#settingsFieldLabel { color: #cbd5e1; font-size: 12px; font-weight: 600; }"
+      "QLabel#settingsClosedDates { background: #151d2d; color: #cbd5e1; border: 1px solid #334155; border-radius: 8px; padding: 10px 12px; }"
+      "QFrame#settingsDivider { color: #334155; border: 0; border-top: 1px solid #334155; margin-top: 8px; margin-bottom: 8px; }"
+      "QPlainTextEdit#settingsContactEdit { background: #151d2d; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 10px; }"
       "QPushButton { background: #4f46e5; color: white; border: 0; border-radius: 8px; padding: 9px 16px; font-weight: 600; font-size: 13px; }"
       "QPushButton:hover { background: #4338ca; }"
       "QPushButton:disabled { background: #1e293b; color: #64748b; }"
@@ -1149,7 +1145,7 @@ void MainWindow::applyTheme(const QString& theme) {
       "QScrollArea#navScroll QScrollBar::handle:vertical { background: #475569; border-radius: 3px; min-height: 24px; }"
       "QScrollArea#navScroll QScrollBar::add-line:vertical, QScrollArea#navScroll QScrollBar::sub-line:vertical { height: 0; }"
       "QFrame#brandHeader { background: transparent; border-bottom: 1px solid #1e293b; }"
-      "QLabel#brandIcon { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f46e5, stop:1 #7c3aed); border-radius: 12px; }"
+      "QLabel#brandIcon { background: transparent; border: 0; }"
       "QLabel#brandTitle { color: #f8fafc; font-size: 18px; font-weight: 700; }"
       "QLabel#brandSubtitle { color: #94a3b8; font-size: 12px; }"
       "QLabel#navSection { color: #64748b; font-size: 11px; font-weight: 700; letter-spacing: 1px; padding: 16px 20px 4px; }"
@@ -1165,6 +1161,16 @@ void MainWindow::applyTheme(const QString& theme) {
       "QLabel#topProfileRole { color: #64748b; font-size: 11px; }"
       "QStackedWidget { background: #f8fafc; }"
       "QFrame#card, QFrame#formCard, QFrame#settingsCard, QFrame#statCard { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; }"
+      "QFrame#settingsHero { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4f46e5, stop:1 #7c3aed); border-radius: 16px; }"
+      "QLabel#settingsEyebrow { color: #ddd6fe; font-size: 10px; font-weight: 700; letter-spacing: 1px; }"
+      "QLabel#settingsHeroTitle { color: #ffffff; font-size: 23px; font-weight: 700; }"
+      "QLabel#settingsHeroLead { color: #eef2ff; font-size: 12px; }"
+      "QLabel#settingsCardTitle { color: #0f172a; font-size: 17px; font-weight: 700; }"
+      "QLabel#settingsCardHint { color: #64748b; font-size: 12px; }"
+      "QLabel#settingsFieldLabel { color: #334155; font-size: 12px; font-weight: 600; }"
+      "QLabel#settingsClosedDates { background: #f8fafc; color: #475569; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; }"
+      "QFrame#settingsDivider { color: #e2e8f0; border: 0; border-top: 1px solid #e2e8f0; margin-top: 8px; margin-bottom: 8px; }"
+      "QPlainTextEdit#settingsContactEdit { background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; }"
       "QPushButton { background: #4f46e5; color: white; border: 0; border-radius: 8px; padding: 9px 16px; font-weight: 600; font-size: 13px; }"
       "QPushButton:hover { background: #4338ca; }"
       "QPushButton:disabled { background: #cbd5e1; color: #64748b; }"
@@ -2579,7 +2585,7 @@ QWidget* MainWindow::laboratoriesPage() {
   l->setContentsMargins(32, 28, 32, 32);
   l->setSpacing(16);
 
-  auto* title = new QLabel("Laboratory Facility Directory");
+  auto* title = new QLabel("Laboratory Directory");
   title->setStyleSheet("font-size: 20px; font-weight: 700;");
   l->addWidget(title);
 
@@ -2587,7 +2593,7 @@ QWidget* MainWindow::laboratoriesPage() {
   auto* search = new QLineEdit;
   search->setObjectName("labsSearch");
   search->setPlaceholderText("Search laboratory name, number, location, or department...");
-  auto* addBtn = createButton("Add Facility", "primary");
+  auto* addBtn = createButton("Add Laboratory", "primary");
   auto* editBtn = createButton("Edit Selected", "secondary");
   auto* toggleActive = createButton("Toggle Active", "secondary");
 
@@ -2599,7 +2605,7 @@ QWidget* MainWindow::laboratoriesPage() {
 
   auto* t = new QTableWidget(0, 7);
   t->setObjectName("laboratoriesTable");
-  t->setHorizontalHeaderLabels({"Facility Name", "Room #", "Location", "Department", "Capacity", "Status", "Active"});
+  t->setHorizontalHeaderLabels({"Laboratory Name", "Room #", "Location", "Department", "Capacity", "Status", "Active"});
   configureDataTable(t);
   t->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
   t->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -3018,28 +3024,58 @@ QWidget* MainWindow::settingsPage() {
   scroll->setWidget(w);
   auto* l = new QVBoxLayout(w);
   l->setContentsMargins(32, 28, 32, 32);
-  l->setSpacing(20);
+  l->setSpacing(18);
 
-  auto* title = new QLabel("System Preferences");
-  title->setStyleSheet("font-size: 22px; font-weight: 700;");
-  l->addWidget(title);
+  auto* hero = new QFrame;
+  hero->setObjectName("settingsHero");
+  hero->setMaximumWidth(1000);
+  auto* heroLayout = new QVBoxLayout(hero);
+  heroLayout->setContentsMargins(28, 22, 28, 22);
+  heroLayout->setSpacing(5);
+  auto* eyebrow = new QLabel("LABBOOKER / PREFERENCES");
+  eyebrow->setObjectName("settingsEyebrow");
+  heroLayout->addWidget(eyebrow);
+  auto* title = new QLabel("Make LabBooker work for you");
+  title->setObjectName("settingsHeroTitle");
+  heroLayout->addWidget(title);
+  auto* lead = new QLabel("Set your appearance and account details. Administrators can also manage booking hours and closures.");
+  lead->setObjectName("settingsHeroLead");
+  lead->setWordWrap(true);
+  heroLayout->addWidget(lead);
+  l->addWidget(hero);
+
+  auto addCardHeading = [](QVBoxLayout* cardLayout, const QString& heading, const QString& description) {
+    auto* name = new QLabel(heading);
+    name->setObjectName("settingsCardTitle");
+    cardLayout->addWidget(name);
+    auto* detail = new QLabel(description);
+    detail->setObjectName("settingsCardHint");
+    detail->setWordWrap(true);
+    cardLayout->addWidget(detail);
+    cardLayout->addSpacing(10);
+  };
 
   // Appearance Theme Card
   auto* themeCard = new QFrame;
   themeCard->setObjectName("settingsCard");
-  themeCard->setMaximumWidth(800);
-  auto* tl = new QFormLayout(themeCard);
-  tl->setContentsMargins(24, 20, 24, 20);
-  tl->setVerticalSpacing(12);
+  themeCard->setMaximumWidth(1000);
+  auto* themeLayout = new QVBoxLayout(themeCard);
+  themeLayout->setContentsMargins(26, 22, 26, 24);
+  themeLayout->setSpacing(7);
+  addCardHeading(themeLayout, "Appearance", "Choose the interface theme for this device.");
 
   auto* themeCombo = new QComboBox;
   themeCombo->addItems({"Light", "Dark"});
   QSettings pref;
   themeCombo->setCurrentText(pref.value("appearance/theme", "Light").toString());
-  tl->addRow("Interface Theme", themeCombo);
-  auto* hint = new QLabel("Toggle between Light and Dark interface modes. Changes take effect instantly.");
-  hint->setStyleSheet("color: #64748b; font-size: 12px;");
-  tl->addRow("", hint);
+  auto* themeLabel = new QLabel("Interface theme");
+  themeLabel->setObjectName("settingsFieldLabel");
+  themeLabel->setBuddy(themeCombo);
+  themeLayout->addWidget(themeLabel);
+  themeLayout->addWidget(themeCombo);
+  auto* hint = new QLabel("Changes take effect immediately.");
+  hint->setObjectName("settingsCardHint");
+  themeLayout->addWidget(hint);
   l->addWidget(themeCard);
 
   connect(themeCombo, &QComboBox::currentTextChanged, this, [this](const QString& val) {
@@ -3051,15 +3087,25 @@ QWidget* MainWindow::settingsPage() {
   if (m_user->role() == UserRole::Administrator) {
     auto* contactCard = new QFrame;
     contactCard->setObjectName("settingsCard");
-    contactCard->setMaximumWidth(800);
+    contactCard->setMaximumWidth(1000);
     auto* contactLayout = new QVBoxLayout(contactCard);
-    contactLayout->addWidget(new QLabel("Administrator contact shown on the sign-in screen"));
+    contactLayout->setContentsMargins(26, 22, 26, 24);
+    contactLayout->setSpacing(9);
+    addCardHeading(contactLayout, "Sign-in contact", "Help students and staff reach the laboratory administrator from the sign-in screen.");
+    auto* contactLabel = new QLabel("Contact details");
+    contactLabel->setObjectName("settingsFieldLabel");
+    contactLayout->addWidget(contactLabel);
     auto* contactEdit = new QPlainTextEdit(QSettings().value("university/adminContact").toString());
+    contactEdit->setObjectName("settingsContactEdit");
+    contactLabel->setBuddy(contactEdit);
     contactEdit->setPlaceholderText("Department, email, office, hours and phone");
-    contactEdit->setMaximumHeight(100);
+    contactEdit->setFixedHeight(96);
     contactLayout->addWidget(contactEdit);
     auto* saveContact = createButton("Save Contact Details", "secondary");
-    contactLayout->addWidget(saveContact);
+    auto* contactActions = new QHBoxLayout;
+    contactActions->addStretch();
+    contactActions->addWidget(saveContact);
+    contactLayout->addLayout(contactActions);
     connect(saveContact, &QPushButton::clicked, this, [contactEdit] {
       QSettings().setValue("university/adminContact", contactEdit->toPlainText().trimmed());
       QMessageBox::information(contactEdit, "Saved", "The sign-in help now shows these contact details.");
@@ -3068,19 +3114,40 @@ QWidget* MainWindow::settingsPage() {
 
     auto* scheduleCard = new QFrame;
     scheduleCard->setObjectName("settingsCard");
-    scheduleCard->setMaximumWidth(800);
-    auto* scheduleLayout = new QFormLayout(scheduleCard);
-    scheduleLayout->setContentsMargins(24, 20, 24, 20);
+    scheduleCard->setMaximumWidth(1000);
+    auto* scheduleLayout = new QVBoxLayout(scheduleCard);
+    scheduleLayout->setContentsMargins(26, 22, 26, 24);
+    scheduleLayout->setSpacing(10);
+    addCardHeading(scheduleLayout, "Booking schedule", "Set the start of the first two-hour session in each half of the day.");
     const auto currentSlots = m_db.bookingSlots();
     auto* morning = new QTimeEdit(currentSlots[0].start);
     morning->setDisplayFormat("h:mm AP");
     auto* afternoon = new QTimeEdit(currentSlots[2].start);
     afternoon->setDisplayFormat("h:mm AP");
-    scheduleLayout->addRow("First morning session", morning);
-    scheduleLayout->addRow("First afternoon session", afternoon);
-    scheduleLayout->addRow(new QLabel("Each session lasts two hours. The second session in each half-day starts immediately after the first."));
+    auto* sessionRow = new QHBoxLayout;
+    sessionRow->setSpacing(16);
+    auto addSession = [sessionRow](const QString& caption, QTimeEdit* edit) {
+      auto* column = new QVBoxLayout;
+      column->setSpacing(7);
+      auto* label = new QLabel(caption);
+      label->setObjectName("settingsFieldLabel");
+      label->setBuddy(edit);
+      column->addWidget(label);
+      column->addWidget(edit);
+      sessionRow->addLayout(column, 1);
+    };
+    addSession("First morning session", morning);
+    addSession("First afternoon session", afternoon);
+    scheduleLayout->addLayout(sessionRow);
+    auto* sessionHint = new QLabel("The second session in each half-day starts immediately after the first.");
+    sessionHint->setObjectName("settingsCardHint");
+    sessionHint->setWordWrap(true);
+    scheduleLayout->addWidget(sessionHint);
     auto* saveSchedule = createButton("Save Booking Schedule", "primary");
-    scheduleLayout->addRow(saveSchedule);
+    auto* scheduleActions = new QHBoxLayout;
+    scheduleActions->addStretch();
+    scheduleActions->addWidget(saveSchedule);
+    scheduleLayout->addLayout(scheduleActions);
     connect(saveSchedule, &QPushButton::clicked, this, [this, morning, afternoon] {
       const auto result = m_db.setBookingSchedule(morning->time(), afternoon->time());
       if (!result.ok) QMessageBox::warning(this, "Schedule Not Saved", result.error);
@@ -3090,20 +3157,44 @@ QWidget* MainWindow::settingsPage() {
       }
     });
 
+    auto* closureDivider = new QFrame;
+    closureDivider->setObjectName("settingsDivider");
+    closureDivider->setFrameShape(QFrame::HLine);
+    scheduleLayout->addWidget(closureDivider);
+    auto* closureTitle = new QLabel("Closure dates");
+    closureTitle->setObjectName("settingsCardTitle");
+    scheduleLayout->addWidget(closureTitle);
+    auto* closureHint = new QLabel("Close a holiday or campus closure date, or reopen a date when plans change.");
+    closureHint->setObjectName("settingsCardHint");
+    closureHint->setWordWrap(true);
+    scheduleLayout->addWidget(closureHint);
     auto* closureDate = new QDateEdit(QDate::currentDate());
     closureDate->setCalendarPopup(true);
     auto* addClosure = createButton("Close This Date", "secondary");
     auto* removeClosure = createButton("Reopen This Date", "secondary");
     auto* closureRow = new QWidget;
-    auto* closureLayout = new QHBoxLayout(closureRow);
+    auto* closureLayout = new QVBoxLayout(closureRow);
     closureLayout->setContentsMargins(0, 0, 0, 0);
+    closureLayout->setSpacing(8);
+    auto* closureDateLabel = new QLabel("Choose a date");
+    closureDateLabel->setObjectName("settingsFieldLabel");
+    closureDateLabel->setBuddy(closureDate);
+    closureLayout->addWidget(closureDateLabel);
     closureLayout->addWidget(closureDate);
-    closureLayout->addWidget(addClosure);
-    closureLayout->addWidget(removeClosure);
-    scheduleLayout->addRow("Holiday / closure", closureRow);
+    auto* closureActions = new QHBoxLayout;
+    closureActions->setSpacing(8);
+    closureActions->addWidget(addClosure);
+    closureActions->addWidget(removeClosure);
+    closureActions->addStretch();
+    closureLayout->addLayout(closureActions);
+    scheduleLayout->addWidget(closureRow);
+    auto* closedDatesLabel = new QLabel("Closed dates");
+    closedDatesLabel->setObjectName("settingsFieldLabel");
+    scheduleLayout->addWidget(closedDatesLabel);
     auto* closureList = new QLabel;
+    closureList->setObjectName("settingsClosedDates");
     closureList->setWordWrap(true);
-    scheduleLayout->addRow("Closed dates", closureList);
+    scheduleLayout->addWidget(closureList);
     auto refreshClosures = [this, closureList] {
       QStringList dates;
       for (const auto& date : m_db.closedDates()) dates << date.toString("ddd, d MMM yyyy");
@@ -3127,10 +3218,11 @@ QWidget* MainWindow::settingsPage() {
   // Password Change Card
   auto* pwCard = new QFrame;
   pwCard->setObjectName("settingsCard");
-  pwCard->setMaximumWidth(800);
-  auto* pl = new QFormLayout(pwCard);
-  pl->setContentsMargins(24, 20, 24, 20);
-  pl->setVerticalSpacing(14);
+  pwCard->setMaximumWidth(1000);
+  auto* pl = new QVBoxLayout(pwCard);
+  pl->setContentsMargins(26, 22, 26, 24);
+  pl->setSpacing(10);
+  addCardHeading(pl, "Account security", "Change your password using your current password to confirm your identity.");
 
   auto* oldPw = new QLineEdit; oldPw->setEchoMode(QLineEdit::Password);
   auto* newPw = new QLineEdit; newPw->setEchoMode(QLineEdit::Password);
@@ -3138,11 +3230,31 @@ QWidget* MainWindow::settingsPage() {
   auto* changeBtn = createButton("Update Account Password", "primary");
   auto* msg = new QLabel;
 
-  pl->addRow("Current Password", oldPw);
-  pl->addRow("New Password (8+ chars)", newPw);
-  pl->addRow("Confirm New Password", confPw);
-  pl->addRow(changeBtn);
-  pl->addRow(msg);
+  auto addPasswordField = [](QVBoxLayout* container, const QString& caption, QLineEdit* edit) {
+    auto* label = new QLabel(caption);
+    label->setObjectName("settingsFieldLabel");
+    label->setBuddy(edit);
+    container->addWidget(label);
+    container->addWidget(edit);
+  };
+  addPasswordField(pl, "Current password", oldPw);
+  auto* newPasswordRow = new QHBoxLayout;
+  newPasswordRow->setSpacing(16);
+  auto* newPasswordColumn = new QVBoxLayout;
+  newPasswordColumn->setSpacing(7);
+  addPasswordField(newPasswordColumn, "New password (8+ characters)", newPw);
+  auto* confirmPasswordColumn = new QVBoxLayout;
+  confirmPasswordColumn->setSpacing(7);
+  addPasswordField(confirmPasswordColumn, "Confirm new password", confPw);
+  newPasswordRow->addLayout(newPasswordColumn, 1);
+  newPasswordRow->addLayout(confirmPasswordColumn, 1);
+  pl->addLayout(newPasswordRow);
+  auto* passwordActions = new QHBoxLayout;
+  passwordActions->addStretch();
+  passwordActions->addWidget(changeBtn);
+  pl->addLayout(passwordActions);
+  msg->setWordWrap(true);
+  pl->addWidget(msg);
   l->addWidget(pwCard);
 
   connect(changeBtn, &QPushButton::clicked, this, [this, oldPw, newPw, confPw, msg] {
@@ -3216,7 +3328,7 @@ void MainWindow::editLaboratoryDialog(qint64 id) {
   }
 
   QDialog dialog(this);
-  dialog.setWindowTitle(original ? "Edit Facility" : "Add New Facility");
+  dialog.setWindowTitle(original ? "Edit Laboratory" : "Add Laboratory");
   dialog.setObjectName("facilityDialog");
   dialog.setMinimumWidth(640);
   auto* layout = new QVBoxLayout(&dialog);
@@ -3236,9 +3348,9 @@ void MainWindow::editLaboratoryDialog(qint64 id) {
   headerRow->addWidget(mark);
   auto* heading = new QVBoxLayout;
   heading->setSpacing(3);
-  auto* title = new QLabel(original ? "Edit laboratory" : "Add laboratory");
+  auto* title = new QLabel(original ? "Edit Laboratory" : "Add Laboratory");
   title->setObjectName("facilityDialogTitle");
-  auto* subtitle = new QLabel(original ? "Update facility details and operating status."
+  auto* subtitle = new QLabel(original ? "Update laboratory details and operating status."
                                        : "Register a laboratory for campus reservations.");
   subtitle->setObjectName("facilityDialogSubtitle");
   heading->addWidget(title);
@@ -3262,14 +3374,14 @@ void MainWindow::editLaboratoryDialog(qint64 id) {
   auto* desc = new QLineEdit(original ? original->description : "");
   auto* status = new QComboBox; status->addItems({"Available", "Unavailable", "Under Maintenance"});
   if (original) status->setCurrentText(toString(original->status));
-  auto* save = createButton(original ? "Save Changes" : "Create Facility");
+  auto* save = createButton(original ? "Save Changes" : "Create Laboratory");
   save->setObjectName("facilitySaveButton");
   save->setDefault(true);
   name->setPlaceholderText("e.g. Computing Laboratory");
   number->setPlaceholderText("e.g. C-204");
   location->setPlaceholderText("Building or floor");
   dept->setPlaceholderText("Academic department");
-  desc->setPlaceholderText("Optional facility notes");
+  desc->setPlaceholderText("Optional laboratory notes");
 
   auto addField = [form](int row, int column, const QString& caption, QWidget* control, int span = 1) {
     auto* field = new QWidget;
@@ -3284,7 +3396,7 @@ void MainWindow::editLaboratoryDialog(qint64 id) {
     stack->addWidget(control);
     form->addWidget(field, row, column, 1, span);
   };
-  addField(0, 0, "Facility name", name);
+  addField(0, 0, "Laboratory name", name);
   addField(0, 1, "Room / lab number", number);
   addField(1, 0, "Location / building", location);
   addField(1, 1, "Department", dept);
@@ -3456,7 +3568,7 @@ void MainWindow::editEquipmentDialog(qint64 id) {
   avail->setMaximum(qty->value());
   connect(qty, qOverload<int>(&QSpinBox::valueChanged), avail, [avail](int v) { avail->setMaximum(v); });
 
-  form->addRow("Assigned Facility", lab);
+  form->addRow("Assigned Laboratory", lab);
   form->addRow("Equipment Name", name);
   form->addRow("Total Quantity", qty);
   form->addRow("Available Quantity", avail);

@@ -205,6 +205,22 @@ private slots:
       QVERIFY(title);
       QCOMPARE(title->text(), page);
     }
+    adminWindow.resize(900, 560);
+    adminWindow.show();
+    adminWindow.navigateToPage("Settings");
+    QApplication::processEvents();
+    auto* settingsView = adminWindow.findChild<QStackedWidget*>()->currentWidget();
+    auto* settingsScroll = settingsView->findChild<QScrollArea*>();
+    QVERIFY(settingsScroll);
+    QVERIFY(settingsScroll->verticalScrollBar()->maximum() > 0);
+    QPushButton* passwordButton = nullptr;
+    for (auto* button : settingsView->findChildren<QPushButton*>())
+      if (button->text() == "Update Account Password") passwordButton = button;
+    QVERIFY(passwordButton);
+    settingsScroll->ensureWidgetVisible(passwordButton);
+    QApplication::processEvents();
+    QVERIFY(settingsScroll->viewport()->rect().contains(
+      passwordButton->mapTo(settingsScroll->viewport(), passwordButton->rect().center())));
     adminWindow.navigateToPage("Laboratories");
     auto* labTable = adminWindow.findChild<QTableWidget*>("laboratoriesTable");
     QVERIFY(labTable && labTable->rowCount() == 1);
