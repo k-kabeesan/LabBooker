@@ -5,7 +5,7 @@ University laboratory booking and management desktop application built with C++1
 
 ## Download for Windows
 
-Download [`release/LabBooker-Windows-x64.zip`](release/LabBooker-Windows-x64.zip), extract the entire ZIP, then run `LabBooker.exe` from the extracted folder. The ZIP includes the Qt runtime files required by the application. The standalone [`release/LabBooker.exe`](release/LabBooker.exe) is provided for users who already have the matching Qt runtime installed.
+Use the [Windows installer](release/LabBook-Setup.exe) for a normal installation with desktop and Start Menu shortcuts. Windows may ask for administrator permission to install into Program Files. For a portable copy, download [LabBook-Portable.zip](release/LabBook-Portable.zip), extract the whole `LabBook` folder, and run `LabBook.exe` inside it. The [LabBook.exe](release/LabBook.exe) file is also provided separately, but it needs the DLL and plugin files in the portable folder; it is not a single-file program. See [installation instructions](packaging/INSTALL.txt) and the [release report](docs/WINDOWS_RELEASE.md).
 
 ## Build and run
 
@@ -21,6 +21,8 @@ ctest --test-dir build --output-on-failure
 On this Windows workspace the Qt kit is also available at `C:/msys64/ucrt64`. If an existing `build/LabBooker.exe` is running, close it before rebuilding in that directory or use a separate build directory such as `build-verify`.
 
 The application stores `labbooker.sqlite` under Qt's application data directory (on this Windows installation, `%APPDATA%\Team 13\LabBooker`). It prompts for the initial administrator on an empty database. No credentials are embedded in the source. Back up the database before replacing an installation; never substitute a demo database for existing user data.
+
+To reproduce the Windows installer, install a matching Qt UCRT64 kit and NSIS, then run `powershell -ExecutionPolicy Bypass -File packaging/build_windows.ps1 -NsisCompiler "C:\path\to\makensis.exe"` from the project root. The script builds in Release mode, deploys Qt and SQLite dependencies, creates the portable ZIP, and compiles the installer.
 
 The current build upgrades existing databases to schema version 4 on first launch to store booking session times and closure dates. Back up the database before launching the new build against existing data.
 

@@ -19,6 +19,9 @@ add_executable(LabBooker
 )
 target_link_libraries(LabBooker PRIVATE Qt6::Widgets Qt6::Sql Qt6::PrintSupport)
 target_include_directories(LabBooker PRIVATE src)
+if(WIN32)
+    target_sources(LabBooker PRIVATE resources/app.rc)
+endif()
 
 enable_testing()
 add_executable(LabBookerTests

@@ -1,0 +1,23 @@
+LabBook for Windows
+===================
+
+Installer: Run LabBook-Setup.exe, accept the Windows elevation prompt, and
+follow the wizard. It installs in Program Files and creates Start Menu and
+desktop shortcuts. Launch LabBook from either shortcut.
+
+Portable: Extract the entire LabBook-Portable.zip archive. Open the LabBook
+folder and run LabBook.exe. Keep its DLL files and the platforms and
+sqldrivers folders together with the executable.
+
+On first launch with no existing database, create your administrator account
+in the setup dialog. The installer contains no preset credentials or sample
+database. Later launches show the login screen.
+
+The database is stored separately from the program in
+%APPDATA%\Team 13\LabBooker\labbooker.sqlite. Installing a newer version or
+uninstalling LabBook does not remove this file. Back it up regularly. To move
+records to a new PC, close LabBook on both PCs, then copy this database file
+to the same location on the new PC before launching LabBook there. Do not
+merge or overwrite a newer database without a backup.
+
+Exports are saved to the location selected in the application's file dialog.
