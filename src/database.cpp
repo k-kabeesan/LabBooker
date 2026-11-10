@@ -84,7 +84,7 @@ ServiceResult DatabaseManager::migrate(){
   if(!versionQuery.exec("PRAGMA user_version")||!versionQuery.next())return ServiceResult::failure(sqlError(versionQuery));
   int version=versionQuery.value(0).toInt();
   versionQuery.finish();
-  if(version>4)return ServiceResult::failure("This database was created by a newer LabBook version.");
+  if(version>5)return ServiceResult::failure("This database was created by a newer LabBook version.");
   if(version==0){
     QFile schema(":/database/schema.sql");
     if(!schema.open(QIODevice::ReadOnly))return ServiceResult::failure("Database schema resource is missing.");
@@ -97,7 +97,7 @@ ServiceResult DatabaseManager::migrate(){
       result=execute(statement);
       if(!result.ok){execute("ROLLBACK");return result;}
     }
-    result=execute("PRAGMA user_version=4");
+    result=execute("PRAGMA user_version=5");
     if(!result.ok){execute("ROLLBACK");return result;}
     result=execute("COMMIT");
     if(!result.ok){execute("ROLLBACK");return result;}
@@ -146,7 +146,7 @@ ServiceResult DatabaseManager::migrate(){
     return result.ok ? migrate() : result;
   }
   if(version==3){
-    return transaction([&]{
+    auto result=transaction([&]{
       for (const auto& sql : {
         "CREATE TABLE IF NOT EXISTS booking_schedule (id INTEGER PRIMARY KEY CHECK(id = 1), morning_start TEXT NOT NULL DEFAULT '08:30', afternoon_start TEXT NOT NULL DEFAULT '13:30')",
         "INSERT OR IGNORE INTO booking_schedule(id,morning_start,afternoon_start) VALUES(1,'08:30','13:30')",
@@ -156,6 +156,18 @@ ServiceResult DatabaseManager::migrate(){
         const auto result = execute(sql);
         if (!result.ok) return result;
       }
+      return ServiceResult::success();
+    });
+    return result.ok ? migrate() : result;
+  }
+  if(version==4){
+    return transaction([&]{
+      for(const auto& sql : {
+        "ALTER TABLE users ADD COLUMN recovery_question TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN recovery_hash TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE users ADD COLUMN recovery_salt TEXT NOT NULL DEFAULT ''",
+        "PRAGMA user_version=5"
+      }){const auto result=execute(sql);if(!result.ok)return result;}
       return ServiceResult::success();
     });
   }

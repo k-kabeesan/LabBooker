@@ -136,13 +136,49 @@ bool AuthService::verify(const QString&password,const QString&expected,const QSt
   for(qsizetype i=0;i<a.size();++i)difference|=uchar(a.at(i))^uchar(b.at(i));
   return difference==0;
 }
-ServiceResult AuthService::bootstrap(const UserRecord&user,const QString&password){
+ServiceResult AuthService::bootstrap(const UserRecord&user,const QString&password,const QString&recoveryQuestion,const QString&recoveryAnswer){
   if(!validPerson(user))return ServiceResult::failure("Enter a valid E-ID, name, and email address.");
   if(password.size()<8)return ServiceResult::failure("Password must be at least 8 characters.");
   if(user.role!=UserRole::Administrator)return ServiceResult::failure("The first account must be an administrator.");
   if(m_db.hasUsers())return ServiceResult::failure("Initial administrator already exists.");
   const auto saltValue=salt();
-  return m_db.transaction([&]{return m_db.insertUser(user,derive(password,saltValue,210000),saltValue,210000,false);});
+  return m_db.transaction([&]{
+    auto result=m_db.insertUser(user,derive(password,saltValue,210000),saltValue,210000,false);
+    if(!result.ok||recoveryQuestion.isEmpty()&&recoveryAnswer.isEmpty())return result;
+    if(recoveryQuestion.trimmed().isEmpty()||recoveryAnswer.trimmed().isEmpty())return ServiceResult::failure("Enter a recovery question and answer.");
+    const auto record=m_db.userByEid(user.eid);
+    if(!record)return ServiceResult::failure("Administrator account was not found.");
+    const auto answerSalt=salt();QSqlQuery q(m_db.db());
+    q.prepare("UPDATE users SET recovery_question=?,recovery_hash=?,recovery_salt=? WHERE user_id=?");
+    q.addBindValue(recoveryQuestion.trimmed());q.addBindValue(derive(recoveryAnswer.trimmed().toCaseFolded(),answerSalt,210000));q.addBindValue(answerSalt);q.addBindValue(record->id);
+    return q.exec()?ServiceResult::success():ServiceResult::failure(q.lastError().text());
+  });
+}
+QString AuthService::recoveryQuestion(const QString&eid)const{
+  const auto user=m_db.userByEid(eid.trimmed());
+  if(!user||!user->active||user->role!=UserRole::Administrator)return {};
+  QSqlQuery q(m_db.db());q.prepare("SELECT recovery_question FROM users WHERE user_id=?");q.addBindValue(user->id);
+  return q.exec()&&q.next()?q.value(0).toString():QString();
+}
+ServiceResult AuthService::resetPasswordWithRecovery(const QString&eid,const QString&answer,const QString&newPassword){
+  if(newPassword.size()<8)return ServiceResult::failure("Password must be at least 8 characters.");
+  const auto user=m_db.userByEid(eid.trimmed());
+  if(!user||!user->active||user->role!=UserRole::Administrator)return ServiceResult::failure("Recovery is unavailable for this account.");
+  QSqlQuery q(m_db.db());q.prepare("SELECT recovery_hash,recovery_salt FROM users WHERE user_id=?");q.addBindValue(user->id);
+  if(!q.exec()||!q.next()||q.value(0).toString().isEmpty()||!verify(answer.trimmed().toCaseFolded(),q.value(0).toString(),q.value(1).toString(),210000))
+    return ServiceResult::failure("Recovery answer is incorrect.");
+  const auto passwordSalt=salt();
+  return m_db.setPassword(user->id,derive(newPassword,passwordSalt,210000),passwordSalt,210000,false);
+}
+ServiceResult AuthService::setRecoveryQuestion(qint64 id,const QString&currentPassword,const QString&question,const QString&answer){
+  if(question.trimmed().isEmpty()||answer.trimmed().isEmpty())return ServiceResult::failure("Enter a recovery question and answer.");
+  const auto user=m_db.userById(id);
+  if(!user||user->role!=UserRole::Administrator)return ServiceResult::failure("Only administrators can set a recovery question.");
+  QSqlQuery q(m_db.db());q.prepare("SELECT password_hash,password_salt,password_iterations FROM users WHERE user_id=?");q.addBindValue(id);
+  if(!q.exec()||!q.next()||!verify(currentPassword,q.value(0).toString(),q.value(1).toString(),q.value(2).toInt()))return ServiceResult::failure("Current password is incorrect.");
+  const auto answerSalt=salt();QSqlQuery update(m_db.db());update.prepare("UPDATE users SET recovery_question=?,recovery_hash=?,recovery_salt=? WHERE user_id=?");
+  update.addBindValue(question.trimmed());update.addBindValue(derive(answer.trimmed().toCaseFolded(),answerSalt,210000));update.addBindValue(answerSalt);update.addBindValue(id);
+  return update.exec()?ServiceResult::success():ServiceResult::failure(update.lastError().text());
 }
 ServiceResult AuthService::createUser(const UserRecord&user,const QString&password){
   if(!validPerson(user))return ServiceResult::failure("Enter a valid E-ID, name, and email address.");

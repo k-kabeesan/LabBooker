@@ -48,6 +48,18 @@ private slots:
     audit.addBindValue(m_admin->id());audit.addBindValue(student->id());
     QVERIFY(audit.exec());QVERIFY(audit.next());QCOMPARE(audit.value(0).toInt(),1);
   }
+  void administratorRecoveryQuestion(){
+    AuthService auth(*m_db);
+    QVERIFY(auth.recoveryQuestion("ADMIN").isEmpty());
+    QVERIFY(!auth.setRecoveryQuestion(m_admin->id(),"wrong-password","First school?","Elm").ok);
+    QVERIFY(auth.setRecoveryQuestion(m_admin->id(),"correct-password","First school?","Elm").ok);
+    QCOMPARE(auth.recoveryQuestion("ADMIN"),QString("First school?"));
+    QVERIFY(!auth.resetPasswordWithRecovery("ADMIN","wrong","new-password").ok);
+    QVERIFY(auth.authenticate("ADMIN","correct-password"));
+    QVERIFY(auth.resetPasswordWithRecovery("ADMIN"," elm ","new-password").ok);
+    QVERIFY(!auth.authenticate("ADMIN","correct-password"));
+    QVERIFY(auth.authenticate("ADMIN","new-password"));
+  }
   void accountRegistrationRequiresAdministratorApproval(){
     UserRecord request;request.eid="NEWSTU";request.name="New Student";request.email="new.student@example.edu";request.role=UserRole::Student;
     const auto submitted=AuthService(*m_db).registerAccount(request,"student-password");QVERIFY2(submitted.ok,qPrintable(submitted.error));
@@ -160,7 +172,7 @@ private slots:
     QSqlQuery version(migrated.db());
     QVERIFY(version.exec("PRAGMA user_version"));
     QVERIFY(version.next());
-    QCOMPARE(version.value(0).toInt(), 4);
+    QCOMPARE(version.value(0).toInt(), 5);
   }
   void bookingOwnershipReviewCancellationAndHistory(){
     auto student=createStudent();auto lab=addLab("L1");BookingService service(*m_db);AvailabilityService availability(*m_db);
@@ -328,7 +340,7 @@ private slots:
     QCOMPARE(migrated.userByEid("OLD")->name,QString("Old User"));
     QCOMPARE(migrated.bookingById(1)->reference,QString("LB-OLD"));
     QCOMPARE(migrated.equipment().first().notes,QString(""));
-    QSqlQuery q(migrated.db());QVERIFY(q.exec("PRAGMA user_version"));QVERIFY(q.next());QCOMPARE(q.value(0).toInt(),4);
+    QSqlQuery q(migrated.db());QVERIFY(q.exec("PRAGMA user_version"));QVERIFY(q.next());QCOMPARE(q.value(0).toInt(),5);
   }
 private:
   std::shared_ptr<User> createStudent(){

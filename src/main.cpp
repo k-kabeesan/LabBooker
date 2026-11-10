@@ -39,11 +39,15 @@ int main(int argc,char**argv){
     QDialog setup;setup.setWindowTitle("First-run administrator setup");setup.setMinimumWidth(520);setup.setStyleSheet("QDialog{background:#ffffff;color:#172033} QDialog QLabel{color:#344054;font-size:13px} QDialog QLineEdit{background:#f8fafc;color:#101828;border:1px solid #d5dce8;border-radius:8px;padding:9px 11px} QDialog QPushButton{background:#5145ed;color:white;border:0;border-radius:8px;padding:10px 16px;font-weight:600}");
     auto*form=new QFormLayout(&setup);form->setContentsMargins(26,24,26,24);form->setHorizontalSpacing(22);form->setVerticalSpacing(14);auto*eid=new QLineEdit;auto*name=new QLineEdit;
     auto*password=new QLineEdit;password->setEchoMode(QLineEdit::Password);
+    auto*question=new QLineEdit;question->setPlaceholderText("A question only you can answer");
+    auto*answer=new QLineEdit;answer->setEchoMode(QLineEdit::Password);
     form->addRow("Administrator E-ID",eid);form->addRow("Full name",name);form->addRow("Password (8+ characters)",password);
+    form->addRow("Recovery question",question);form->addRow("Recovery answer",answer);
     auto*create=new QPushButton("Create administrator");form->addRow(create);
     QObject::connect(create,&QPushButton::clicked,&setup,[&]{
       UserRecord user;user.eid=eid->text().trimmed();user.name=name->text().trimmed();user.role=UserRole::Administrator;
-      const auto result=AuthService(db).bootstrap(user,password->text());
+      if(question->text().trimmed().isEmpty()||answer->text().trimmed().isEmpty()){QMessageBox::warning(&setup,"Setup failed","Enter a recovery question and answer.");return;}
+      const auto result=AuthService(db).bootstrap(user,password->text(),question->text(),answer->text());
       if(!result.ok){QMessageBox::warning(&setup,"Setup failed",result.error);return;}setup.accept();
     });
     if(setup.exec()!=QDialog::Accepted)return 0;

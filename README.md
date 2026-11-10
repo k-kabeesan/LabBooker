@@ -54,6 +54,8 @@ The MSYS2 UCRT64 kit at `C:/msys64/ucrt64` is another available `CMAKE_PREFIX_PA
 
 LabBooker stores `labbooker.sqlite` in Qt's application data directory. On Windows, the path is `%APPDATA%\Team 13\LabBooker`. On an empty database, the application prompts for the initial administrator account; credentials are not embedded in the source.
 
+The first administrator also sets a recovery question and answer. To reset a forgotten administrator password, select **Forgot password?** on the sign-in screen, enter the administrator E-ID, answer the recovery question, and choose a new password. Existing administrators can set a recovery question under **Account security** after signing in. Other users should ask an administrator to reset their password. Recovery answers are stored as salted hashes.
+
 Back up the database before replacing an installation or launching a newer build against existing data. The current build upgrades existing databases to schema version 4 on first launch to store session times and closure dates. Do not replace an existing database with a demo database.
 
 ## Windows packaging

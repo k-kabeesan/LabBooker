@@ -562,8 +562,25 @@ LoginWindow::LoginWindow(DatabaseManager& db, QWidget* parent)
   connect(m_password, &QLineEdit::returnPressed, this, &LoginWindow::login);
   connect(m_eid, &QLineEdit::returnPressed, this, [this] { m_password->setFocus(); });
   connect(forgot, &QPushButton::clicked, this, [this] {
-    QMessageBox::information(this, "Password Help",
-      "For account security, passwords cannot be retrieved directly.\nPlease contact your laboratory administrator to reset your credentials.");
+    QDialog dialog(this);dialog.setWindowTitle("Reset administrator password");
+    auto* form=new QFormLayout(&dialog);
+    auto* eid=new QLineEdit(m_eid->text().trimmed());form->addRow("Administrator E-ID",eid);
+    auto* question=new QLabel;question->setWordWrap(true);form->addRow("Recovery question",question);
+    auto* answer=new QLineEdit;answer->setEchoMode(QLineEdit::Password);form->addRow("Recovery answer",answer);
+    auto* password=new QLineEdit;password->setEchoMode(QLineEdit::Password);form->addRow("New password (8+ characters)",password);
+    auto* confirm=new QLineEdit;confirm->setEchoMode(QLineEdit::Password);form->addRow("Confirm password",confirm);
+    auto* buttons=new QDialogButtonBox(QDialogButtonBox::Save|QDialogButtonBox::Cancel);form->addRow(buttons);
+    connect(eid,&QLineEdit::textChanged,&dialog,[this,eid,question]{question->setText(AuthService(m_db).recoveryQuestion(eid->text()));});
+    question->setText(AuthService(m_db).recoveryQuestion(eid->text()));
+    connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    connect(buttons,&QDialogButtonBox::accepted,&dialog,[this,&dialog,eid,question,answer,password,confirm]{
+      if(question->text().isEmpty()){QMessageBox::warning(&dialog,"Recovery unavailable","This account has no recovery question. Contact another administrator.");return;}
+      if(password->text()!=confirm->text()){QMessageBox::warning(&dialog,"Password mismatch","Passwords do not match.");return;}
+      const auto result=AuthService(m_db).resetPasswordWithRecovery(eid->text(),answer->text(),password->text());
+      if(!result.ok){QMessageBox::warning(&dialog,"Reset failed",result.error);return;}
+      dialog.accept();
+    });
+    if(dialog.exec()==QDialog::Accepted)QMessageBox::information(this,"Password reset","Your password was reset. Sign in with the new password.");
   });
   connect(contactAdmin, &QPushButton::clicked, this, [this] {
     const QString contact = QSettings().value("university/adminContact").toString().trimmed();
@@ -3352,6 +3369,26 @@ QWidget* MainWindow::settingsPage() {
   msg->setWordWrap(true);
   pl->addWidget(msg);
   l->addWidget(pwCard);
+
+  if(m_user->role()==UserRole::Administrator){
+    auto* recoveryCard=new QFrame;recoveryCard->setObjectName("settingsCard");recoveryCard->setMaximumWidth(1000);
+    auto* recoveryLayout=new QVBoxLayout(recoveryCard);
+    addCardHeading(recoveryLayout,"Password recovery","Set a question to reset your administrator password from the sign-in screen.");
+    auto* current=new QLineEdit;current->setEchoMode(QLineEdit::Password);
+    auto* question=new QLineEdit;
+    auto* answer=new QLineEdit;answer->setEchoMode(QLineEdit::Password);
+    addPasswordField(recoveryLayout,"Current password",current);
+    addPasswordField(recoveryLayout,"Recovery question",question);
+    addPasswordField(recoveryLayout,"Recovery answer",answer);
+    auto* save=createButton("Save Recovery Question","primary");recoveryLayout->addWidget(save);
+    auto* status=new QLabel;status->setWordWrap(true);recoveryLayout->addWidget(status);
+    connect(save,&QPushButton::clicked,this,[this,current,question,answer,status]{
+      const auto result=AuthService(m_db).setRecoveryQuestion(m_user->id(),current->text(),question->text(),answer->text());
+      status->setText(result.ok?"Recovery question saved.":result.error);
+      if(result.ok){current->clear();answer->clear();}
+    });
+    l->addWidget(recoveryCard);
+  }
 
   connect(changeBtn, &QPushButton::clicked, this, [this, oldPw, newPw, confPw, msg] {
     if (newPw->text().size() < 8) {

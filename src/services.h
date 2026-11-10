@@ -9,7 +9,10 @@ class AuthService {
 public:
   explicit AuthService(DatabaseManager& db):m_db(db){}
   bool needsBootstrap() const{return !m_db.hasUsers();}
-  ServiceResult bootstrap(const UserRecord&,const QString&password);
+  ServiceResult bootstrap(const UserRecord&,const QString&password,const QString&recoveryQuestion={},const QString&recoveryAnswer={});
+  QString recoveryQuestion(const QString& eid) const;
+  ServiceResult resetPasswordWithRecovery(const QString& eid,const QString&answer,const QString&newPassword);
+  ServiceResult setRecoveryQuestion(qint64 id,const QString&currentPassword,const QString&question,const QString&answer);
   ServiceResult createUser(const UserRecord&,const QString&temporaryPassword);
   ServiceResult registerAccount(const UserRecord&,const QString&password);
   std::shared_ptr<User> authenticate(const QString& eid,const QString&password,QString*error=nullptr) const;
